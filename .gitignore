@@ -51,12 +51,13 @@ venv/
 *.temp
 
 # AI AGENT
-.agent
+.agents
 .claude
 .codex
 .mswai
 AGENTS.md
 CLAUDE.md
+.mcp.json
 skills-lock.json
 
 # MSW migration
