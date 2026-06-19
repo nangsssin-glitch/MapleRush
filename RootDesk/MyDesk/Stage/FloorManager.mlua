@@ -1,4 +1,4 @@
-@Logic
+﻿@Logic
 script FloorManager extends Logic
 
 	-- theme / normal / shop / boss / clear
@@ -109,8 +109,13 @@ script FloorManager extends Logic
 
 	@ExecSpace("Server")
 	method void RequestSelectNode(integer branchIdx)
-		-- 분기 선택 → 일반 스테이지 시작 (전진만, 되돌리기 불가).
-		log("[FloorManager] node branch " .. tostring(branchIdx) .. " selected")
+		-- 분기 선택 → 일반 스테이지 시작 (MR-S 비교: 1=MapleTile(map02) / 그 외=SideView(mapSV)).
+		if branchIdx == 1 then
+			_GameConstants.NormalMapChoice = "map02"
+		else
+			_GameConstants.NormalMapChoice = "mapSV"
+		end
+		log("[FloorManager] node branch " .. tostring(branchIdx) .. " -> normal map " .. _GameConstants.NormalMapChoice)
 		_StageManager:StartStage("normal")
 	end
 

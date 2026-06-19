@@ -22,7 +22,9 @@
         "MOD.Core.SpriteRendererComponent",
         "MOD.Core.RigidbodyComponent",
         "script.EnemyHealth",
-        "script.EnemyMelee"
+        "script.EnemyMelee",
+        "MOD.Core.SideviewbodyComponent",
+        "MOD.Core.MovementComponent"
       ],
       "Properties": [],
       "Values": [

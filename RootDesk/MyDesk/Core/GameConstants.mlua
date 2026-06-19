@@ -126,12 +126,20 @@ script GameConstants extends Logic
 
 	property integer MaxFloors = 1
 
-	-- 스테이지 타입별 전투/상점 맵 (데모: 일반=map02, 보스=map03, 상점=map04).
-	property string MapNormal = "map02"
+	-- 스테이지 타입별 전투/상점 맵 (MR-S 비교: 일반=mapSV(SideView), 보스=map03, 상점=map04).
+	-- 원복하려면 MapNormal을 "map02"로 되돌릴 것.
+	property string MapNormal = "mapSV"
 
 	property string MapBoss = "map03"
 
 	property string MapShop = "map04"
+
+	-- SideView(RectTile) 맵에서 적 추격 속도(MovementComponent.InputSpeed). MapleTile은 Rigidbody.MoveVelocity 사용(별개).
+	property number EnemyChaseSpeed = 2.0
+
+	-- MR-S 비교: 일반 스테이지 타일맵 런타임 선택 ("mapSV"=SideView / "map02"=MapleTile). 노드 선택에서 설정.
+	@Sync
+	property string NormalMapChoice = "mapSV"
 
 	property integer AbilityUsesNormal = 1
 
@@ -174,6 +182,14 @@ script GameConstants extends Logic
 	property string DashDestMarkerName = "DashDestMarker"
 
 	property number DashDestMarkerScale = 0.5
+
+	-- 대시 최대 사거리 원 (조준 중 플레이어 중앙에 표시).
+	property string DashRangeModelId = "dashrangecircle"
+
+	property string DashRangeName = "DashRangeCircle"
+
+	-- 사거리 원 스프라이트의 자연 월드폭(px/100). 228px 스프라이트 → 2.28. 스케일=2×DashDistance/이 값.
+	property number DashRangeSpriteWidth = 2.28
 
 	-- ========== 공격/피격 이펙트 ==========
 	-- 좌클릭 기본 공격 이펙트 (animationclip, 커서 방향 회전 재생).
@@ -222,9 +238,10 @@ script GameConstants extends Logic
 	end
 
 	method string MapIdForStage(string stageType)
-		-- 스테이지 타입 → 맵 id. 일반(map02) / 보스(map03) / 상점(map04).
+		-- 스테이지 타입 → 맵 id. 보스(map03) / 상점(map04) / 일반(NormalMapChoice 런타임 선택, 미설정 시 MapNormal).
 		if stageType == "boss" then return self.MapBoss end
 		if stageType == "shop" then return self.MapShop end
+		if self.NormalMapChoice ~= nil and self.NormalMapChoice ~= "" then return self.NormalMapChoice end
 		return self.MapNormal
 	end
 

@@ -45,6 +45,7 @@ script PlayerBootstrap extends Logic
 		-- 대시 조준 미리보기 라인 + 목적지 마커 스프라이트를 플레이어 자식으로 1회씩 스폰 (기본 숨김; 클라가 조준 중 제어).
 		self:SpawnChildSprite(player, _GameConstants.DashPreviewModelId, _GameConstants.DashPreviewName)
 		self:SpawnChildSprite(player, _GameConstants.DashDestMarkerModelId, _GameConstants.DashDestMarkerName)
+		self:SpawnChildSprite(player, _GameConstants.DashRangeModelId, _GameConstants.DashRangeName)
 	end
 
 	@ExecSpace("ServerOnly")

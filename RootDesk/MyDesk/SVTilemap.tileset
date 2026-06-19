@@ -1,0 +1,27 @@
+{
+  "Id": "",
+  "GameId": "",
+  "EntryKey": "tileset://6b3a839f-3838-4f4c-b715-edfa553e58a7",
+  "ContentType": "x-mod/tileset",
+  "Content": "",
+  "Usage": 0,
+  "UsePublish": 1,
+  "UseService": 0,
+  "CoreVersion": "26.5.0.0",
+  "StudioVersion": "0.1.0.0",
+  "DynamicLoading": 0,
+  "ContentProto": {
+    "Use": "Json",
+    "Json": {
+      "name": "SVTilemap",
+      "id": "tileset://6b3a839f-3838-4f4c-b715-edfa553e58a7",
+      "datas": [
+        {
+          "Id": "2be8f75b84cc4ccaba2fb861bd9a0f4e",
+          "Name": "Ground",
+          "IsCollidable": true
+        }
+      ]
+    }
+  }
+}

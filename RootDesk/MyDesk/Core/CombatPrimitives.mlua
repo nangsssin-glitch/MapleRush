@@ -199,33 +199,53 @@ script CombatPrimitives extends Logic
 	end
 
 	method number RaycastWallDistance(Entity map, Vector2 origin, Vector2 dir, number maxDist)
-		-- origin에서 dir(정규화) 방향 maxDist까지, 경로상 수직(벽) 풋홀드와의 최근접 교차 거리. 벽 없으면 maxDist. 기하 쿼리(양측 공용).
+		-- origin에서 dir(정규화) 방향 maxDist까지 경로상 벽과의 최근접 거리. 벽 없으면 maxDist. 기하 쿼리(양측 공용).
+		-- MapleTile: 수직 풋홀드 레이캐스트 / RectTile·SideView: 충돌 타일 레이마치. 둘 중 가까운 값.
 		if map == nil then return maxDist end
+		local best = maxDist
+		-- (A) MapleTile 경로: 수직(벽) 풋홀드와의 교차
 		local fhc = map.FootholdComponent
 		if isvalid(fhc) == false then
 			fhc = map:GetFirstChildComponentByTypeName("MOD.Core.FootholdComponent", true)
 		end
-		if isvalid(fhc) == false then return maxDist end
-		local hits = fhc:RaycastAll(origin, dir, maxDist)
-		if hits == nil then return maxDist end
-		local best = maxDist
-		for _, fh in ipairs(hits) do
-			if fh ~= nil and fh:IsVertical() then
-				-- ray(origin + t*dir) ∩ 선분(StartPoint→EndPoint): t = 교차까지 거리(dir 정규화이므로 월드 단위)
-				local a = fh.StartPoint
-				local b = fh.EndPoint
-				local ex = b.x - a.x
-				local ey = b.y - a.y
-				local qx = a.x - origin.x
-				local qy = a.y - origin.y
-				local det = ex * dir.y - dir.x * ey
-				if det > 0.00001 or det < -0.00001 then
-					local t = (ex * qy - qx * ey) / det
-					local s = (dir.x * qy - dir.y * qx) / det
-					if t > 0.001 and t <= maxDist and s >= -0.001 and s <= 1.001 then
-						if t < best then best = t end
+		if isvalid(fhc) then
+			local hits = fhc:RaycastAll(origin, dir, maxDist)
+			if hits ~= nil then
+				for _, fh in ipairs(hits) do
+					if fh ~= nil and fh:IsVertical() then
+						-- ray(origin + t*dir) ∩ 선분(StartPoint→EndPoint): t = 교차까지 거리(dir 정규화이므로 월드 단위)
+						local a = fh.StartPoint
+						local b = fh.EndPoint
+						local ex = b.x - a.x
+						local ey = b.y - a.y
+						local qx = a.x - origin.x
+						local qy = a.y - origin.y
+						local det = ex * dir.y - dir.x * ey
+						if det > 0.00001 or det < -0.00001 then
+							local t = (ex * qy - qx * ey) / det
+							local s = (dir.x * qy - dir.y * qx) / det
+							if t > 0.001 and t <= maxDist and s >= -0.001 and s <= 1.001 then
+								if t < best then best = t end
+							end
+						end
 					end
 				end
+			end
+		end
+		-- (B) RectTile/SideViewRectTile 경로: 충돌 타일까지 레이마치 (풋홀드가 비어있는 SideView 맵에서 동작)
+		---@type RectTileMapComponent
+		local rtm = map:GetFirstChildComponentByTypeName("MOD.Core.RectTileMapComponent", true)
+		if isvalid(rtm) then
+			local step = 0.2
+			local t = step
+			while t <= maxDist do
+				local cell = rtm:ToCellPosition(Vector3(origin.x + dir.x * t, origin.y + dir.y * t, 0))
+				local info = rtm:GetTile(cell)
+				if info ~= nil and info.IsCollidable then
+					if t < best then best = t end
+					break
+				end
+				t = t + step
 			end
 		end
 		return best
