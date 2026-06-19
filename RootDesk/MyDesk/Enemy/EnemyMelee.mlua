@@ -99,7 +99,9 @@ script EnemyMelee extends Component
 				self.pendingAttack = nil
 				self.aiState = "cooldown"
 				self.stateTimer = self.AttackCooldown
-				self:PlayClip(self.standClip)
+				-- ⚠️ RequestHit가 플레이어 사망→ResetStage를 동기 트리거하면 이 적이 파괴됨.
+				--    파괴된 self에 메서드 호출 시 LEA-2011 ('PlayClip' is nil) → isvalid 가드.
+				if isvalid(self.Entity) then self:PlayClip(self.standClip) end
 			end
 		elseif self.aiState == "cooldown" then
 			self.stateTimer -= scaledDelta

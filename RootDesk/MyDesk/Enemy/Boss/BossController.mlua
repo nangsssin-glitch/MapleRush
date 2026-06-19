@@ -172,6 +172,9 @@ script BossController extends Component
 			end
 		end
 		-- 패턴 종료 → stand 복귀 (잔류 공격 모션 방지).
+		-- ⚠️ slam/redSmash의 RequestHit가 플레이어 사망→ResetStage를 동기 트리거하면 이 보스가 파괴됨.
+		--    파괴된 self에 메서드 호출 시 LEA-2011 ('PlayClip' is nil) → isvalid 가드 필수.
+		if isvalid(self.Entity) == false then return end
 		self:PlayClip(self.standClip)
 		self.phase = "delay"
 		self.phaseTimer = _GameConstants.BossPatternDelay

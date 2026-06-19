@@ -48,7 +48,11 @@ updated: 2026-06-19
 
 ### 추가 (2026-06-20): 그로기 모션 + LEA-2011 진단
 - 그로기 상태에 전용 모션 추가: `BossGroggyClip = hit1`(`90fee941…`). 그로기 분기에서 stand 대신 hit1 재생 → 비틀거리는 무방비 연출(머쉬맘 팩에 전용 stun 클립 없어 hit1 차용). Verify: 그로기 3초 내내 90fee941 유지 확인.
-- ⚠️ 보스전 `[LEA-2011] 'PlayClip' is nil` 보고 → **코드 버그 아님, stale codeblock**. `.codeblock`은 Content 빈 스텁이고 메서드 본문은 Maker가 컴파일/캐시 → 새 `.mlua` 메서드 추가 후 `refresh` 없이 play하면 옛 메서드 테이블로 돌아 nil. **pull 후 Maker refresh→play로 해소.** refreshed 상태 재검증 시 LEA-2011 재현 안 됨.
+- ⚠️ 보스전 `[LEA-2011] 'PlayClip' is nil` 1차 보고 → 처음엔 stale codeblock으로 추정했으나, **죽고 재시작 시 재현**되어 재조사 → **실제 버그(내 회귀) 확정 + 수정**:
+  - **근본 원인(재진입/자기파괴)**: slam/redSmash의 `ResolvePattern`이 `hitComp:RequestHit()` 호출 → 플레이어 사망 → `OnPlayerDeath` → `ResetStage`가 **동기적으로 이 보스를 Destroy**. 제어가 ResolvePattern으로 복귀해 다음 줄 `self:PlayClip(self.standClip)` 실행 → 파괴된 self의 메서드는 nil → LEA-2011. (기존 코드는 그 자리에 속성 쓰기만 있어 무해했는데, MR-B에서 메서드 호출을 추가해 노출됨.)
+  - **수정**: ResolvePattern tail에 `if isvalid(self.Entity) == false then return end` 가드.
+  - **동일 잠복 버그**: `EnemyMelee`도 RequestHit 직후 `self:PlayClip(self.standClip)` 호출 → 같은 가드 적용. (`EnemyRanged`는 투사체가 RequestHit를 하므로 자기파괴 없음 — 무영향. `Projectile`은 RequestHit 뒤 네이티브 `Destroy`만 호출 — 무영향.)
+  - **Verify(보스 스테이지 16초 스트레스, 사망→재시작 6회, boss:redSmash 직접 처치 경로 포함)**: LEA-2011 0건, 보스 매번 정상 재스폰·패턴 지속.
 
 ## Verify
 - Maker `play` → 보스전에서 각 패턴 발동 시 모션 재생 확인 → 그로기/처치 후 stand 복귀 확인 → `logs`.
