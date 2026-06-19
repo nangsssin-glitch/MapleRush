@@ -44,7 +44,11 @@ updated: 2026-06-19
 - BossController에 OnBeginPlay(stand 캡처) + PlayClip 추가, StartPattern 3분기 + ResolvePattern + 그로기/그레이스/무플레이어 분기 stand 복귀.
 - 사망: EnemyHealth.Die()가 엔티티 즉시 Destroy → 잔류 모션 불가(검증 불필요).
 - ⚠️ §1.4.4 "사망 시 잔류 투사체·이펙트 소멸"은 모션이 아닌 tripleShot 투사체 정리 → MR-B 범위 밖. 미구현이면 별도 티켓 필요.
-- Verify(Maker play, map01에 보스 스폰): build 0 err. windup→공격클립 스왑 / delay→stand 복귀 / 그로기 3초 내내 stand 유지, 로그로 확인. 3패턴(SLAM/RED SMASH/TRIPLE SHOT) 모두 발동.
+- Verify(Maker play, map01에 보스 스폰): build 0 err. windup→공격클립 스왑 / delay→stand 복귀 / 3패턴(SLAM/RED SMASH/TRIPLE SHOT) 모두 발동.
+
+### 추가 (2026-06-20): 그로기 모션 + LEA-2011 진단
+- 그로기 상태에 전용 모션 추가: `BossGroggyClip = hit1`(`90fee941…`). 그로기 분기에서 stand 대신 hit1 재생 → 비틀거리는 무방비 연출(머쉬맘 팩에 전용 stun 클립 없어 hit1 차용). Verify: 그로기 3초 내내 90fee941 유지 확인.
+- ⚠️ 보스전 `[LEA-2011] 'PlayClip' is nil` 보고 → **코드 버그 아님, stale codeblock**. `.codeblock`은 Content 빈 스텁이고 메서드 본문은 Maker가 컴파일/캐시 → 새 `.mlua` 메서드 추가 후 `refresh` 없이 play하면 옛 메서드 테이블로 돌아 nil. **pull 후 Maker refresh→play로 해소.** refreshed 상태 재검증 시 LEA-2011 재현 안 됨.
 
 ## Verify
 - Maker `play` → 보스전에서 각 패턴 발동 시 모션 재생 확인 → 그로기/처치 후 stand 복귀 확인 → `logs`.

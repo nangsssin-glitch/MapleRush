@@ -54,7 +54,7 @@ script BossController extends Component
 		if gg ~= nil and gg.IsGroggy == true then
 			self:CancelWindup()
 			self:StopMove()
-			self:PlayClip(self.standClip)
+			self:PlayClip(_GameConstants.BossGroggyClip)
 			return
 		end
 		local timeScale = _SlowMotion:Scale()

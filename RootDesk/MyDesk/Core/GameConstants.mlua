@@ -216,6 +216,9 @@ script GameConstants extends Logic
 
 	property string BossSkillClip = "b9345875a8134c7c9a1b6aed8551d808"
 
+	-- 그로기(기절) 모션 — hit1(피격) 클립 재생으로 비틀거리는 무방비 상태 연출 (전용 stun 클립 부재).
+	property string BossGroggyClip = "90fee9416184420a9796a679751d1ec5"
+
 	method integer NormalStagesForFloor(integer floor)
 		-- 층별 일반 스테이지 진행 횟수: 4 + 1*(층수-1) (stage_design_doc §2.2.3)
 		return self.Floor1NormalStages + (floor - 1)
