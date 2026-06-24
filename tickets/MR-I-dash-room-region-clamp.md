@@ -123,6 +123,68 @@ updated: 2026-06-24
 **보류(검토 YAGNI)**: foothold 착지 스냅 / 방향투영 clearance / 착지 고스트(item2 시각)·tint → 실측에서 필요 확인 시 추가. 고스트는 맨 마지막, foot 기준.
 **검증**: 그룹 생성 후 refresh → map02에 dashblockregion 1개 배치 → play → 발 원점 raycast 클램프 + 바닥 하향조준 어시스트 실측.
 
+## foothold 조준보정 제거 (2026-06-24, 이어서)
+- 사용자 판단: 대시가 foothold/바닥 기준으로도 막히는 느낌 → 접지 하향 조준 보정 **일단 제거**.
+- `PlayerDash.ComputeAimDir`이 `ApplyFloorAimAssist` 호출을 빼고 **raw 커서 방향**(`DirectionTo`)만 반환. 프리뷰·실행 공통. `CombatPrimitives:ApplyFloorAimAssist`는 순수함수로 보존(복원 1줄).
+- 실측(play map02, execute_script): onGround=true에서 직하향→(0.000,-1.000), 급하향→(0.179,-0.984) — 보정 안 걸림 확인. 빌드 0에러.
+- map02 테스트 블록(발밑 가로 슬랩 폭4·높이0.5)은 **그대로 둠**(사용자).
+- **DashWallMargin 0.4 → 0.0** (`GameConstants`) — 벽/블록 면에 딱 붙어 정지. 복원 시 0.4.
+- 실측(사용자 라이브 대시): 위(−0.18,0.98)=len4.00 / 아래(0.06,−1.00)=len3.61 / 우하향(0.99,−0.16)=**len0.01**(발밑 슬랩 즉시 히트). 마진0·보정無 확인. 빌드 0에러.
+- 비고: 아래로 조준 시 발밑 DashBlock 슬랩이 있으면 raycast가 즉시 맞아 대시 0거리(위 len0.01) — 일반 맵엔 바닥이 foothold(DashBlock 아님)라 무관. map02 슬랩은 유지 결정이라 그 맵에선 아래 대시 막힘 지속. 체감 보고 필요 시 보정 복원/대안 검토.
+
+## 디버그 기즈모 추가 (2026-06-24, 이어서)
+대시 디버깅용 시각화 (사용자 요청). **항상 켜둔 디버그 모드**(`GameConstants.DashGizmoDebug`).
+- **신규** `Player/PlayerDashGizmo.mlua`(@Component, ClientOnly): 매 프레임 그림 — (1) DashBlock 불가지역 박스 4-엣지 외곽선(빨강, 회전 지원), (2) 최대 사거리 원(기존 DashRangeCircle 재사용), (3) 실제 대시 레이(발 원점→도착, 초록)+원점(시안)/도착(노랑) 점. 조준 중=라이브(발 기준), 대시 후=실제 경로 잔상(DashGizmoHold 1.5s).
+- 엔티티는 **기존 빔/점/원 스프라이트 모델 재사용**(새 에셋 0). PlayerBootstrap이 게이팅 스폰: 레이1+점2+엣지풀(DashGizmoMaxBlocks×4=12) = 15개. PlayerDashGizmo 컴포넌트도 게이팅 부착.
+- GameConstants 추가: `DashGizmoDebug/RayName/OriginName/EndName/EdgePrefix/MaxBlocks(3)/Hold(1.5)/EdgeThick(0.12)/RayThick(0.2)/DotScale(0.35)`.
+- 블록 열거 = `TriggerComponent.CollisionGroup.Id == DashBlock` 필터(맵별 캐시). DashBlockRegion은 RoomRegionMarker 미포함이라 그룹 Id로 식별.
+- **실측 검증(play map02)**: 블록 1개→엣지4 정확 배치(top/bottom/left/right, scale=길이/빔폭 일치), 사거리원 center+3.51, 대시(dir 0.85,0.53 len4.0)→레이 발원점→도착(3.39,1.49) 정확, idle 시 숨김. 빌드 0에러.
+- 경고 `LWA-3048`(런타임 AddComponent deprecation) — combat 컴포넌트 공통, 기능 무해.
+- **MR-D 제거 대상**: `DashGizmoDebug=false`로 끄거나, PlayerDashGizmo.mlua + PlayerBootstrap EnsureDashGizmo/AddComponent + GameConstants 기즈모 상수 제거.
+
+## 대시 도착 발판 스냅 (2026-06-24, 이어서)
+대시 도착 시 **발(하체)만 발판 표면 아래로 살짝 묻히고 상체는 안 걸칠 때** 판정 우위로 발판 위에 올림. MapleTile·도착지점 한정.
+- `CombatPrimitives:SnapFootToFoothold(map, footX, footY, maxSnap)`: 발에서 위로 maxSnap 지점부터 아래로 `FootholdComponent:Raycast` → 발판 표면이 발보다 위(묻힘)이고 깊이 ≤ maxSnap이면 `Foothold:GetYByX`로 표면 Y 반환. 수직 풋홀드(벽) 제외.
+- `PlayerDash.EndDash`: dashIsSideView==false일 때만 호출, 스냅되면 `DashMoveTo`로 Y만 올림. (도착지점 한정 — 이동 중엔 미적용)
+- `GameConstants.DashFootholdSnap = 0.4` (콜라이더 높이 0.7의 절반쯤; 이보다 깊으면 상체까지 묻힘=벽 취급해 스냅 안함). 튜닝 knob.
+- **실측 검증(play map02, 138 풋홀드)**: A(표면 0.2 아래)→표면으로 스냅, B(1.0 아래)→불변, C(0.2 위)→불변, D(표면)→불변. 빌드·diagnose 0에러.
+- 비고: 디버그 기즈모 잔상은 raw 대시 경로(스냅 전)를 표시 — 스냅은 도착 후 Y 보정이라 별개. 체감 후 maxSnap 조정 가능.
+
+## 접지 스텝오버 + 블록 도착 스냅 (2026-06-24, 이어서)
+접지 시 낮은 방해물(DashBlock)은 대시로 넘어가고, 높은 벽은 그대로 막히게. + 낮은 블록에 도착이 박히면 블록 위로 올림. (사용자: 스텝오버 방식, 기준 높이=플레이어 중앙 0.5)
+- `GameConstants.DashStepOverHeight = 0.5` knob.
+- `CombatPrimitives.ClampRayToCurrentRoom`의 `blockGrace` 파라미터(접지 여유, 스텝오버+시작여유 통합): ① 블록 raycast 원점 Y를 이만큼 올림(낮은 장애물 통과) ② **entry<blockGrace 인 블록은 클램프 무시**(벽에 붙거나 겹쳐도 안 막힘 = 여유만큼 밖에서 시작한 효과). allow-box 불변. 공중(0)은 기존 동작.
+- `PlayerDash.ComputeDashLength`: 접지(`RigidbodyComponent:IsOnGround()`)면 `blockGrace = DashStepOverHeight`, 공중이면 0. 프리뷰·실행·기즈모 공통(ComputeDashLength 경유).
+- **DashStepOverHeight 0.5 → 0.35로 하향**(체감상 0.5 과함, 70%). 스텝오버·시작여유·블록 도착스냅 모두 이 값 사용.
+- **실측(2026-06-24 추가)**: 벽 겹침 탈출 origin(0,-1.0)+x → noGrace 0.000 / withGrace(0.35) 4.000 ✓. 하향대시 0.583(0.35 기준) 정상 클램프. 빌드·diagnose 0에러.
+- 한계(검토): 블록 raycast가 첫 히트만 봄 → 무시된 가까운 블록 뒤의 벽은 미감지 가능(단일 블록 시나리오 위주라 허용).
+
+## 벽 진입 방지 — 방향성 클램프 (2026-06-24, 이어서)
+이전 grace(entry<grace 무시)는 겹쳤을 때 **아무 방향이나** 통과시켜 벽 안으로 더 들어갈 수 있었음 → "겹치면 바깥으로만" 으로 교체.
+- **신규** `CombatPrimitives.BlockClampEntry(hit, origin, dir, maxLen)` (OBB/회전 지원):
+  - origin이 블록 **밖** → 슬랩 진입거리(벽 앞 정지, **진입 불가**). 면과 평행+경계 밖이면 maxLen(빗나감).
+  - origin이 블록 **안** → 가장 가까운 면 바깥 노멀·dir 내적>0(바깥)이면 maxLen(탈출 허용), 아니면(안쪽/평행) **0**(더 깊이 금지).
+- `ClampRayToCurrentRoom` 블록 경로가 `OBBRayEntry`+grace조건 → `BlockClampEntry`로 교체. `blockGrace`는 이제 스텝오버 Y올림 용도만(공중=0).
+- **실측(play map02)**: 벽 안 up=4.00/+x=0.00/down=0.00, 밖에서 진입(down)=0.350(면 앞 정지), 접지 수평 스텝오버=4.000. 전부 정확. 빌드·diagnose 0에러.
+
+## 벽 측면 도착 마진 (2026-06-24, 이어서)
+벽에 막혀 정지할 때 플레이어가 벽에 안 박히게 마진을 두고 정지. **측면(벽)에만**, 바닥/천장(위·아래 면)엔 미적용(착지 스냅 담당 → 하향 대시 0거리 회귀 방지).
+- `BlockClampEntry`에 `wallMargin` 파라미터 + 진입 면 축 추적(`entrySide`). 밖에서 진입 시 진입 면이 x축(측면=벽)이면 `entry -= wallMargin`(0 하한). y축(위/아래)이면 마진 0.
+- `GameConstants.DashWallMargin` 0.0 → **0.35**(플레이어 반폭 0.33+여유)로 재활용. `ClampRayToCurrentRoom`이 BlockClampEntry에 전달.
+- `PlayerDash.ComputeDashLength`의 기존 일괄 `- DashWallMargin` 제거(이중 적용 방지; 마진은 이제 측면 블록 전용).
+- **실측(play map02, 세로 벽 center(-9.13,2.35) 폭2·높이8)**: 벽 측면 1.0 접근 → 0.650(마진 0.35 앞 정지) / 바닥 윗면 하향 → 0.350(마진 없음). 빌드·diagnose 0에러.
+- 비고: 마진은 dir 방향 스칼라라 대각 진입 시 근사. 체감상 부족/과하면 DashWallMargin만 조정.
+
+## 겹친 블록 관통 버그 수정 (2026-06-24, 이어서)
+**증상**: 벽에 비비며(겹친 채) 대시하면 연결된 바닥이 뚫림. **근본원인**: `CollisionSimulator`엔 `RaycastAll`이 없고 `Raycast`(첫 히트 1개)만 → 벽에 겹친 채 바깥 방향 대시 시 벽만 반환→탈출 허용(무시)→연결된 바닥 미조회→관통.
+- **재현 데이터**: 벽 x[-10.13,-8.13]·바닥 x[-10.68,9.78] y top -0.64 (겹침). origin(-9.0,-0.29) 우하향 → 기존 ClampRay=4.000(관통), 바닥 단독 BlockClampEntry=0.500.
+- **수정**: 단일 `sim:Raycast` → **전체 DashBlock 콜라이더 열거(`BuildBlockColliders`, 맵별 캐시) 후 각각 `BlockClampEntry` min**. 겹친 벽은 탈출(무시)돼도 바닥은 따로 평가 → 0.5로 클램프.
+- **실측(play map02)**: [FIX] 겹침 우하향 4.0→0.500 / [REG] 벽측면 1.023·바닥하향 0.340·접지수평 4.000. 빌드·diagnose 0에러.
+- 한계: 블록 많은 맵에서 매 클램프마다 전체 루프(캐시됨, 보통 소수). 필요 시 공간분할.
+- `CombatPrimitives.SnapFootToBlock`: 도착 시 발에서 위로 maxSnap 지점부터 아래로 DashBlock raycast → OBB 진입점(블록 윗면)이 발보다 위·깊이<maxSnap이면 올림. **entry==0(원점이 블록 내부=블록이 snap보다 높이 솟음=상체까지 묻힘)은 거부**(깊은 박힘 스냅 안함).
+- `PlayerDash.EndDash`: 발판 스냅 + 블록 스냅 중 더 높은 표면으로(max). MapleTile 한정.
+- **실측 검증(play map02, slab top −0.64)**: 하향대시 clamp noStep=0.000→withStep(0.5)=0.833 / 블록스냅 얕음(−0.89→−0.64)·깊음(−1.5→불변)·발판스냅 4케이스 전부 정확. 빌드·diagnose 0에러.
+
 ## Verify
 - Maker `play` → 대시를 방 경계·바닥 방향으로 쏴서 클램프 정상 + 방 밖 이탈 없음 → `logs` 에러 0. 미authoring 맵 폴백 확인.
 - (완료) 기하/열거/폴백 로직은 execute_script 단위검증으로 통과 + 실제 배치 마커로 클램프 확인. **잔여: 멈춤 위치/마진 체감 튜닝(다음 세션) + MR-A 다맵 마커 배치.**

@@ -35,6 +35,9 @@ script PlayerBootstrap extends Logic
 		if player:GetComponent("script.PlayerItems") == nil then
 			player:AddComponent("PlayerItems")
 		end
+		if _GameConstants.DashGizmoDebug and player:GetComponent("script.PlayerDashGizmo") == nil then
+			player:AddComponent("PlayerDashGizmo")
+		end
 		log("[PlayerBootstrap] combat components attached to " .. player.Name)
 		self:EnsureDashPreview(player)
 		_StageManager:OnPlayerReady(player)
@@ -46,6 +49,24 @@ script PlayerBootstrap extends Logic
 		self:SpawnChildSprite(player, _GameConstants.DashPreviewModelId, _GameConstants.DashPreviewName)
 		self:SpawnChildSprite(player, _GameConstants.DashDestMarkerModelId, _GameConstants.DashDestMarkerName)
 		self:SpawnChildSprite(player, _GameConstants.DashRangeModelId, _GameConstants.DashRangeName)
+		if _GameConstants.DashGizmoDebug then
+			self:EnsureDashGizmo(player)
+		end
+	end
+
+	@ExecSpace("ServerOnly")
+	method void EnsureDashGizmo(Entity player)
+		-- 디버그 기즈모 엔티티 스폰 (MR-I; MR-D 제거 대상). 빔/점 스프라이트 모델 재사용 — 새 에셋 없음.
+		-- 레이(빔) + 원점/도착 점(점) + 블록 외곽선 엣지 풀(빔 ×4/블록). PlayerDashGizmo 컴포넌트가 클라에서 구동.
+		self:SpawnChildSprite(player, _GameConstants.DashPreviewModelId, _GameConstants.DashGizmoRayName)
+		self:SpawnChildSprite(player, _GameConstants.DashDestMarkerModelId, _GameConstants.DashGizmoOriginName)
+		self:SpawnChildSprite(player, _GameConstants.DashDestMarkerModelId, _GameConstants.DashGizmoEndName)
+		local edgeCount = _GameConstants.DashGizmoMaxBlocks * 4
+		for i = 0, edgeCount - 1 do
+			self:SpawnChildSprite(player, _GameConstants.DashPreviewModelId, _GameConstants.DashGizmoEdgePrefix .. tostring(i))
+		end
+		-- PlayerDashGizmo 컴포넌트는 AttachCombatComponents에서 다른 컴포넌트들과 함께 추가(LWA-3048 회피).
+		log("[PlayerBootstrap] dash gizmo spawned (" .. tostring(edgeCount + 3) .. " entities)")
 	end
 
 	@ExecSpace("ServerOnly")

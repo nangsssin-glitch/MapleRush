@@ -199,25 +199,20 @@ script PlayerDash extends Component
 		if L > _GameConstants.DashDistance then L = _GameConstants.DashDistance end
 		local pos = self.Entity.TransformComponent.WorldPosition
 		local foot = Vector2(pos.x, pos.y)
-		local roomDist = _CombatPrimitives:ClampRayToCurrentRoom(self.Entity.CurrentMap, foot, foot, dir, L)
-		if roomDist < L then
-			L = roomDist - _GameConstants.DashWallMargin
-			if L < 0 then L = 0 end
-		end
+		-- 접지 시 스텝오버: 블록 판정 ray 원점을 올려 낮은 장애물은 넘어가게 함(높은 벽은 그대로 막힘).
+		local stepUp = 0.0
+		local rb = self.Entity.RigidbodyComponent
+		if isvalid(rb) and rb:IsOnGround() then stepUp = _GameConstants.DashStepOverHeight end
+		-- 측면(벽) 마진은 ClampRayToCurrentRoom 내부(BlockClampEntry)에서 반영됨 — 여기선 추가 차감 없음(이중 적용 방지).
+		local roomDist = _CombatPrimitives:ClampRayToCurrentRoom(self.Entity.CurrentMap, foot, foot, dir, L, stepUp)
+		if roomDist < L then L = roomDist end
 		return L
 	end
 
 	@ExecSpace("ClientOnly")
 	method Vector2 ComputeAimDir(Vector2 center, Vector2 target)
-		-- 대시 방향 = 커서 방향 + 접지 하향 조준 보정(바닥 박힘 0거리 방지). 프리뷰·실행 공통(둘이 어긋나지 않게).
-		local dir = _CombatPrimitives:DirectionTo(center, target)
-		local onGround = false
-		local rb = self.Entity.RigidbodyComponent
-		if isvalid(rb) then onGround = rb:IsOnGround() end
-		local facingX = 1.0
-		local mc = self.Entity.MovementComponent
-		if isvalid(mc) and mc:IsFaceLeft() then facingX = -1.0 end
-		return _CombatPrimitives:ApplyFloorAimAssist(dir, onGround, facingX)
+		-- 대시 방향 = 커서 방향(원시). 접지 하향 조준 보정(ApplyFloorAimAssist)은 일단 제거 — 바닥/foothold 기준 클램프 체감 확인용(MR-I). 프리뷰·실행 공통.
+		return _CombatPrimitives:DirectionTo(center, target)
 	end
 
 	@ExecSpace("ClientOnly")
@@ -329,12 +324,24 @@ script PlayerDash extends Component
 
 	@ExecSpace("ClientOnly")
 	method void EndDash()
-		-- 대시 종료: 컨트롤러 원복. 무적은 이동 종료 즉시 해제(서버 타이머가 자연 만료).
+		-- 대시 종료: 도착지점 발판 스냅 → 컨트롤러 원복. 무적은 이동 종료 즉시 해제(서버 타이머가 자연 만료).
 		self.IsDashing = false
 		self:StopDashFx()
+		-- 도착지점 스냅(MapleTile 한정): 발이 발판 또는 (스텝오버로 넘은) 낮은 블록 아래로 묻혔으면 위로 올림. 더 높은 표면 우선.
+		if self.dashIsSideView == false then
+			local pos = self.Entity.TransformComponent.WorldPosition
+			local map = self.Entity.CurrentMap
+			local fY = _CombatPrimitives:SnapFootToFoothold(map, pos.x, pos.y, _GameConstants.DashFootholdSnap)
+			local bY = _CombatPrimitives:SnapFootToBlock(map, pos.x, pos.y, _GameConstants.DashStepOverHeight)
+			local snappedY = math.max(fY, bY)
+			if snappedY ~= pos.y then
+				self:DashMoveTo(Vector2(pos.x, snappedY))
+				log("[PlayerDash] arrival snap: y " .. string.format("%.2f", pos.y) .. " -> " .. string.format("%.2f", snappedY) .. " (fh=" .. string.format("%.2f", fY) .. " blk=" .. string.format("%.2f", bY) .. ")")
+			end
+		end
 		self.Entity.PlayerControllerComponent.Enable = self.prevControllerEnable
-		local pos = self.Entity.TransformComponent.WorldPosition
-		log("[PlayerDash] dash end at (" .. string.format("%.2f", pos.x) .. "," .. string.format("%.2f", pos.y) .. ")")
+		local p = self.Entity.TransformComponent.WorldPosition
+		log("[PlayerDash] dash end at (" .. string.format("%.2f", p.x) .. "," .. string.format("%.2f", p.y) .. ")")
 	end
 
 	-- ========== 연출(FX) ==========

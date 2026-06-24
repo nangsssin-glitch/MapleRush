@@ -11,6 +11,11 @@ script CombatPrimitives extends Logic
 
 	property any roomCacheRegions = nil
 
+	-- 대시 블록(DashBlock) 콜라이더 캐시 — 전체 열거 클램프용(맵별 1회). Raycast 첫-히트 한계 회피.
+	property any blockColliderCacheMapName = nil
+
+	property any blockColliderCache = nil
+
 	@ExecSpace("ServerOnly")
 	method void OnUpdate(number delta)
 		-- 만료된 공격 레코드 정리 (서버, 매 프레임).
@@ -319,9 +324,94 @@ script CombatPrimitives extends Logic
 		return maxLen
 	end
 
-	method number ClampRayToCurrentRoom(Entity map, Vector2 playerPos, Vector2 origin, Vector2 dir, number maxDist)
+	method number BlockClampEntry(any hitComp, Vector2 origin, Vector2 dir, number maxLen, number wallMargin)
+		-- 방향성 블록 클램프 거리. 회전(OBB) 지원.
+		-- origin이 블록 '밖'이면 진입거리(슬랩 tmin) → 벽 앞에서 정지(진입 불가). 빗나가면 maxLen.
+		--   진입 면이 측면(x축=벽)이면 wallMargin만큼 더 앞에서 정지(플레이어가 벽에 안 박히게). 위/아래 면(y축)은 마진 미적용.
+		-- origin이 블록 '안'이면: 가장 가까운 면의 바깥 노멀과 dir 내적>0(바깥으로 탈출)이면 maxLen(무시=탈출 허용),
+		--   아니면(안쪽/면과 평행) 0 → 더 깊이 못 들어감. (벽 겹침 시 바깥으로만 이동 허용)
+		if hitComp == nil then return maxLen end
+		local e = hitComp.Entity
+		if isvalid(e) == false then return maxLen end
+		local tc = e.TriggerComponent
+		local tf = e.TransformComponent
+		if isvalid(tc) == false or isvalid(tf) == false then return maxLen end
+		local p = tf.WorldPosition
+		local sc = tf.Scale
+		local sz = tc.BoxSize
+		local off = tc.ColliderOffset
+		local a = math.rad(tf.WorldZRotation)
+		local ca = math.cos(a)
+		local sa = math.sin(a)
+		local oxw = off.x * sc.x
+		local oyw = off.y * sc.y
+		local cx = p.x + (oxw * ca - oyw * sa)
+		local cy = p.y + (oxw * sa + oyw * ca)
+		local halfW = sz.x * sc.x * 0.5
+		local halfH = sz.y * sc.y * 0.5
+		-- origin/dir → 박스 로컬좌표
+		local rx = origin.x - cx
+		local ry = origin.y - cy
+		local lox = rx * ca + ry * sa
+		local loy = -rx * sa + ry * ca
+		local ldx = dir.x * ca + dir.y * sa
+		local ldy = -dir.x * sa + dir.y * ca
+		local EPS = 0.0001
+		local inside = lox > -halfW + EPS and lox < halfW - EPS and loy > -halfH + EPS and loy < halfH - EPS
+		if inside then
+			-- 가장 가까운 면의 바깥 노멀(로컬)
+			local px = halfW - math.abs(lox)
+			local py = halfH - math.abs(loy)
+			local nx = 0.0
+			local ny = 0.0
+			if px <= py then
+				if lox >= 0 then nx = 1.0 else nx = -1.0 end
+			else
+				if loy >= 0 then ny = 1.0 else ny = -1.0 end
+			end
+			if ldx * nx + ldy * ny > 0 then return maxLen end
+			return 0
+		end
+		-- 밖: 슬랩 진입거리. 면과 평행하면서 그 면 바깥/경계면 빗나감(maxLen). 진입 면 축도 추적(측면=x면 마진용).
+		local tmin = -math.huge
+		local tmax = math.huge
+		local entrySide = false
+		if math.abs(ldx) < EPS then
+			if lox <= -halfW + EPS or lox >= halfW - EPS then return maxLen end
+		else
+			local t1 = (-halfW - lox) / ldx
+			local t2 = (halfW - lox) / ldx
+			if t1 > t2 then local tmp = t1 t1 = t2 t2 = tmp end
+			if t1 > tmin then tmin = t1 entrySide = true end
+			if t2 < tmax then tmax = t2 end
+		end
+		if math.abs(ldy) < EPS then
+			if loy <= -halfH + EPS or loy >= halfH - EPS then return maxLen end
+		else
+			local t1 = (-halfH - loy) / ldy
+			local t2 = (halfH - loy) / ldy
+			if t1 > t2 then local tmp = t1 t1 = t2 t2 = tmp end
+			if t1 > tmin then tmin = t1 entrySide = false end
+			if t2 < tmax then tmax = t2 end
+		end
+		if tmax < 0 or tmin > tmax then return maxLen end
+		local entry = tmin
+		if entry < 0 then entry = 0 end
+		if entry >= maxLen then return maxLen end
+		-- 측면(벽) 진입에만 마진 적용 — 위/아래(바닥·천장)는 착지 스냅이 담당.
+		if entrySide and wallMargin > 0 then
+			entry = entry - wallMargin
+			if entry < 0 then entry = 0 end
+		end
+		return entry
+	end
+
+	method number ClampRayToCurrentRoom(Entity map, Vector2 playerPos, Vector2 origin, Vector2 dir, number maxDist, number blockGrace)
 		-- 대시 거리 클램프. result=maxDist에서 시작해 (1) allow-box 논리 영역, (2) 블록 존 raycast 중 더 가까운 곳으로 줄임.
 		-- 둘 다 없으면 maxDist 그대로(폴백 = 기존 최대 사거리, 안전).
+		-- blockGrace: 접지 시 블록 ray 원점 Y를 이만큼 올림(스텝오버 — 낮은 장애물 통과). 공중=0(원점 그대로).
+		--   벽 겹침 처리는 BlockClampEntry가 방향성으로: 밖이면 벽 앞 정지(진입 불가), 안이면 바깥 방향만 탈출 허용·안쪽은 0.
+		--   allow-box는 영향 없음.
 		if map == nil or isvalid(map) == false then return maxDist end
 		local result = maxDist
 		-- (1) allow-box(감싸는 방) 논리 클램프 — 플레이어를 포함하는 방의 경계 이탈거리. 마커 열거는 맵별 1회 캐시.
@@ -338,21 +428,67 @@ script CombatPrimitives extends Logic
 				end
 			end
 		end
-		-- (2) 블록 존(대시 불가지역) raycast — 전용 DashBlock 그룹만 쿼리(플레이어/적/allow박스 제외). 맞으면 OBB 진입거리로 클램프.
-		-- 가드: DashBlock 그룹이 프로젝트에 등록돼 있을 때만 쿼리. 미등록이면 블록 경로를 건너뛰고 폴백(allow-box/최대사거리)으로 안전.
-		-- 그룹 '객체'를 넘긴다(이름 문자열 X) — 커스텀 그룹 Id는 GUID라 이름 해석 모호성이 있으므로 CollisionGroup 오버로드가 안전.
+		-- (2) 블록 존(대시 불가지역) — 전용 DashBlock 그룹의 콜라이더 전체를 열거해 각각 방향성 클램프 후 min.
+		-- Raycast는 첫(가장 가까운) 히트 1개만 반환 → 벽에 겹친 채 바깥으로 대시하면 벽만 보고(탈출 허용) 연결된
+		-- 바닥은 놓쳐 관통하는 문제가 있어, 전체 열거로 모든 블록을 평가한다. 그룹 미등록이면 건너뜀(안전 폴백).
 		local grp = CollisionGroups[_GameConstants.DashBlockGroup]
 		if grp ~= nil then
-			local sim = _CollisionService:GetSimulator(map)
-			if sim ~= nil then
-				local hit = sim:Raycast(grp, origin, dir, result)
-				if hit ~= nil and isvalid(hit.Entity) then
-					local entry = self:OBBRayEntry(hit, origin, dir, result)
-					if entry < result then result = entry end
+			if self.blockColliderCacheMapName ~= map.Name then
+				self.blockColliderCache = self:BuildBlockColliders(map, grp)
+				self.blockColliderCacheMapName = map.Name
+			end
+			local cols = self.blockColliderCache
+			if cols ~= nil and #cols > 0 then
+				-- 접지 스텝오버: 원점 Y를 blockGrace만큼 올려 낮은 장애물 통과.
+				local bOrigin = origin
+				if blockGrace ~= 0 then bOrigin = Vector2(origin.x, origin.y + blockGrace) end
+				for _, tc in ipairs(cols) do
+					if isvalid(tc) and isvalid(tc.Entity) then
+						local entry = self:BlockClampEntry(tc, bOrigin, dir, result, _GameConstants.DashWallMargin)
+						if entry < result then result = entry end
+					end
 				end
 			end
 		end
 		return result
+	end
+
+	method table BuildBlockColliders(Entity map, any grp)
+		-- 맵의 DashBlock 그룹 TriggerComponent 목록 (맵별 캐시). 전체 열거 클램프용. grp.Id로 필터.
+		local list = {}
+		if map == nil or isvalid(map) == false then return list end
+		local triggers = map:GetChildComponentsByTypeName("MOD.Core.TriggerComponent", true)
+		if triggers ~= nil then
+			for _, tcAny in ipairs(triggers) do
+				---@type TriggerComponent
+				local tc = tcAny
+				if isvalid(tc) and tc.CollisionGroup ~= nil and tc.CollisionGroup.Id == grp.Id then
+					table.insert(list, tc)
+				end
+			end
+		end
+		return list
+	end
+
+	method number SnapFootToBlock(Entity map, number footX, number footY, number maxSnap)
+		-- 대시 도착 블록 스냅. 발에서 위로 maxSnap 지점부터 아래로 DashBlock 그룹 raycast해, 블록에 박혀 있으면
+		-- OBB 진입점(=블록 윗면)으로 발을 올린다. 윗면이 발보다 위이고 깊이 ≤ maxSnap일 때만. (스텝오버로 넘은 낮은 블록 위에 안착)
+		if map == nil or isvalid(map) == false then return footY end
+		local grp = CollisionGroups[_GameConstants.DashBlockGroup]
+		if grp == nil then return footY end
+		local sim = _CollisionService:GetSimulator(map)
+		if sim == nil then return footY end
+		local rayOrigin = Vector2(footX, footY + maxSnap)
+		local down = Vector2(0, -1)
+		local hit = sim:Raycast(grp, rayOrigin, down, maxSnap)
+		if hit == nil or isvalid(hit.Entity) == false then return footY end
+		local entry = self:OBBRayEntry(hit, rayOrigin, down, maxSnap)
+		-- entry==0 → 원점(footY+maxSnap)이 블록 내부 = 블록이 snap 범위보다 높이 솟음(상체까지 묻힘) → 스냅 거부.
+		-- entry==maxSnap → 블록 윗면이 발 높이(묻힘 없음). 0<entry<maxSnap 일 때만 윗면 = origin-entry 로 올림.
+		if entry > 0.0001 and entry < maxSnap then
+			return (footY + maxSnap) - entry
+		end
+		return footY
 	end
 
 	method Vector2 ApplyFloorAimAssist(Vector2 dir, boolean onGround, number facingX)
@@ -370,6 +506,23 @@ script CombatPrimitives extends Logic
 		end
 		local hx = math.sqrt(1.0 - minY * minY)
 		return Vector2(sx * hx, minY)
+	end
+
+	method number SnapFootToFoothold(Entity map, number footX, number footY, number maxSnap)
+		-- 대시 도착 발판 스냅(MapleTile). 발(footX,footY)에서 위로 maxSnap 지점부터 아래로 raycast해
+		-- 발판 표면이 발보다 위(=발이 묻힘)이고 그 깊이가 maxSnap 이내면 발판 표면 Y를 반환(발판 위로 올림).
+		-- 벽(수직 풋홀드)·범위 밖·발 아래 발판은 무시하고 footY 그대로. (도착지점 한정 호출)
+		if map == nil or isvalid(map) == false then return footY end
+		local fhc = map.FootholdComponent
+		if isvalid(fhc) == false then return footY end
+		local fh = fhc:Raycast(Vector2(footX, footY + maxSnap), Vector2(0, -1), maxSnap)
+		if fh == nil then return footY end
+		if fh:IsVertical() then return footY end
+		local fy = fh:GetYByX(footX)
+		if fy > footY and (fy - footY) <= maxSnap then
+			return fy
+		end
+		return footY
 	end
 
 	@ExecSpace("ClientOnly")
