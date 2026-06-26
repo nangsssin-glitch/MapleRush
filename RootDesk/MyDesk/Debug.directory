@@ -1,0 +1,23 @@
+{
+  "Id": "",
+  "GameId": "",
+  "EntryKey": "directory://049946d2444243e5acd803b5cc8271e0",
+  "ContentType": "x-mod/directory",
+  "Content": "",
+  "Usage": 0,
+  "UsePublish": 1,
+  "UseService": 0,
+  "CoreVersion": "26.5.0.0",
+  "StudioVersion": "",
+  "DynamicLoading": 0,
+  "ContentProto": {
+    "Use": "Json",
+    "Json": {
+      "entry_id": "directory://049946d2444243e5acd803b5cc8271e0",
+      "name": "Debug",
+      "lock": false,
+      "folding": false,
+      "nameEditable": true
+    }
+  }
+}

@@ -80,27 +80,38 @@ script ShopController extends Component
 	end
 
 	@ExecSpace("ClientOnly")
+	method void TryBuy(string label, integer price, any buyFn)
+		-- 구매 확인 단계 (stage_design §2.4.2). 메소 부족 시 구매 불가 피드백, 충분 시 확인 팝업 → OK에서만 실제 구매.
+		local meso = math.floor(_GameStateManager.Meso)
+		if meso < price then
+			_UIPopup:Open(label .. "\n메소가 부족합니다.\n보유 " .. tostring(meso) .. " / 필요 " .. tostring(price), nil, nil)
+			return
+		end
+		_UIPopup:Open(label .. "\n가격: " .. tostring(price) .. " 메소\n구입하시겠습니까?", buyFn, nil)
+	end
+
+	@ExecSpace("ClientOnly")
 	method void OnMaxLifeClick(ButtonClickEvent event)
-		-- 최대 목숨 구입 (확인 팝업은 Phase 8 폴리시).
-		_ShopManager:RequestBuyMaxLife()
+		-- 최대 목숨 구입: 확인 팝업 경유.
+		self:TryBuy("최대 목숨 +1", _ShopManager.PriceMaxLife, function() _ShopManager:RequestBuyMaxLife() end)
 	end
 
 	@ExecSpace("ClientOnly")
 	method void OnStatClick(ButtonClickEvent event)
-		-- 스탯 강화 구입.
-		_ShopManager:RequestBuyStat()
+		-- 스탯 강화 구입: 확인 팝업 경유.
+		self:TryBuy("공격력 강화 +2", _ShopManager.PriceStat, function() _ShopManager:RequestBuyStat() end)
 	end
 
 	@ExecSpace("ClientOnly")
 	method void OnAbilityClick(ButtonClickEvent event)
-		-- 능력 구입.
-		_ShopManager:RequestBuyAbility()
+		-- 능력 구입: 확인 팝업 경유.
+		self:TryBuy("능력 획득/교체", _ShopManager.PriceAbility, function() _ShopManager:RequestBuyAbility() end)
 	end
 
 	@ExecSpace("ClientOnly")
 	method void OnItemClick(ButtonClickEvent event)
-		-- 아이템 구입.
-		_ShopManager:RequestBuyItem()
+		-- 아이템 구입: 확인 팝업 경유.
+		self:TryBuy("일회성 아이템 획득", _ShopManager.PriceItem, function() _ShopManager:RequestBuyItem() end)
 	end
 
 	@ExecSpace("ClientOnly")

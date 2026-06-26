@@ -1,0 +1,37 @@
+﻿@Logic
+script DebugMesoCheat extends Logic
+
+	-- ⚠️ [DEBUG/임시] M키 → 메소 +10 치트. 상점 구매 테스트용. 릴리스 전 제거 대상 (MR-D 디버그 게이팅).
+	property any keyHandler = nil
+
+	@ExecSpace("ClientOnly")
+	method void OnBeginPlay()
+		-- 클라에서 키 입력 구독 (KeyDownEvent는 클라 전용 입력).
+		self.keyHandler = _InputService:ConnectEvent(KeyDownEvent, self.OnKeyDown)
+		log("[DebugMesoCheat] M키 메소 치트 활성화 (+10/press)")
+	end
+
+	@ExecSpace("ClientOnly")
+	method void OnKeyDown(KeyDownEvent event)
+		-- M키 누르면 서버에 메소 +10 요청.
+		if event.key == KeyboardKey.M then
+			self:RequestAddMeso()
+		end
+	end
+
+	@ExecSpace("Server")
+	method void RequestAddMeso()
+		-- 서버 권위 메소 지급 (@Sync로 클라 자동 반영).
+		_GameStateManager:AddMeso(10)
+	end
+
+	@ExecSpace("ClientOnly")
+	method void OnEndPlay()
+		-- 핸들러 해제.
+		if self.keyHandler ~= nil then
+			_InputService:DisconnectEvent(KeyDownEvent, self.keyHandler)
+			self.keyHandler = nil
+		end
+	end
+
+end
