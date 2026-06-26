@@ -10,7 +10,7 @@ touches:
 depends_on: []
 branch: "D4LGONA/shop-confirm-popup"
 created: 2026-06-19
-updated: 2026-06-20
+updated: 2026-06-26
 ---
 
 # 상점 구매 확인 팝업
@@ -48,6 +48,16 @@ updated: 2026-06-20
   - AC4: 메소 10에서 능력(150) 클릭 → "메소가 부족합니다 / 보유 10 / 필요 150" 피드백, 구매 안 됨 ✓
   - 아이템 OK → smoke 지급, meso-40, price×2 ✓ / 빌드·런타임 에러 0
 - 비고: `_UIPopup`은 기존에 존재했으나 미사용이었고 MR-C가 첫 사용처. 메소부족 팝업은 OK/취소 둘 다 닫힘(onOk=nil) — 추후 토스트로 바꾸면 더 적합하나 MVP는 팝업으로 충분.
+
+### z-order 회귀 재수정 (2026-06-26)
+- 증상 재발: 확인 팝업이 다시 상점 창보다 **뒤에** 표시됨. master 머지/빌더 재직렬화 과정에서 값이 회귀한 것으로 추정.
+- 원인 정정: 그룹 간 z-order는 엔티티 `displayOrder`가 아니라 **`UIGroupComponent.GroupOrder`**가 결정한다(`ui-hierarchy.md` §4). 06-20 노트의 "displayOrder"는 실제로 GroupOrder를 가리킴.
+- 확인된 실제 값: PopupGroup `GroupOrder=3` < ShopGroup=7 (+ ToastGroup=5). → UIBuilder로 PopupGroup `GroupOrder 3→10` 복구. lint 통과, 빌드 에러 0, Maker play 재검증에서 팝업이 상점 앞에 표시 확인.
+- ⚠️ 잠재 이슈(미해결): ToastGroup `GroupOrder=5` < ShopGroup=7 — 상점 위 토스트는 가려짐. 권장 20. 본 티켓 범위 밖, 별도 처리.
+
+### ⚠️ 디버그 치트 동봉 (릴리스 전 제거 필수)
+- 이 브랜치에는 **디버그용 M키 메소 +10 치트**가 포함됨: `RootDesk/MyDesk/Debug/DebugMesoCheat.mlua` (`@Logic`, 커밋 `88496b0`).
+- 상점 구매 테스트 편의용 임시 코드. **MR-D(릴리스 정리/디버그 게이팅)에서 반드시 제거 또는 게이팅** 후 릴리스.
 
 ## Verify
 - Maker `play` → 상점에서 품목 클릭 → 확인/취소 동작 → 확인 시에만 메소 차감되는지 `logs`로 확인.
