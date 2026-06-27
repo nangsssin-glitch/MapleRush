@@ -240,9 +240,9 @@ script GameConstants extends Logic
 	property string DashGizmoLineModelId = "dashgizmoline"
 
 	-- 중앙 매니저 홀더 풀: 라인(LineRenderer) N + 점(Sprite) K. 맵 자식으로 인덱스 네이밍 스폰(prefix+i, 0-base). 매니저가 맵 자식에서 이름으로 조회.
-	-- retained-mode 고정 슬롯 레이아웃(GizmoManager가 인덱스→역할 매핑 + 1회 bake): 0=사거리원 1=마커원 2=레이선 3~5=블록박스 6=공격플래시원
-	-- 7~14=투사체원(×8) 15~20=적공격원 노랑(×6) 21~26=적공격원 빨강(×6) = 총 27. (각 홀더 Points는 1회 정적 셋업, 매 프레임 Transform만 갱신)
-	property integer GizmoLinePoolSize = 27
+	-- retained-mode 고정 슬롯 레이아웃(GizmoManager가 인덱스→역할 매핑 + 1회 bake): 0=사거리원 1=마커원 2=레이선 3~5=블록박스
+	-- 6=플레이어평타박스(하늘) 7~14=투사체원(×8) 15~20=적공격박스 노랑(×6) 21~26=적공격박스 빨강(×6) 27~34=원거리레인박스 노랑(×8) = 총 35.
+	property integer GizmoLinePoolSize = 35
 	property integer GizmoDotPoolSize = 4
 	property string GizmoLinePoolPrefix = "GizmoLine"
 	property string GizmoDotPoolPrefix = "GizmoDot"

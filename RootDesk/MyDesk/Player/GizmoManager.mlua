@@ -50,6 +50,10 @@ script GizmoManager extends Logic
 	@HideFromInspector property integer AtkYStart = 15
 	@HideFromInspector property integer AtkRStart = 21
 	@HideFromInspector property integer AtkCount = 6
+	@HideFromInspector property integer LaneStart = 27
+	@HideFromInspector property integer LaneCount = 8
+	@HideFromInspector property integer laneCursor = 0
+	@HideFromInspector property boolean laneOverflowed = false
 
 	@ExecSpace("ClientOnly")
 	method void OnBeginPlay()
@@ -116,7 +120,9 @@ script GizmoManager extends Logic
 				self.atkYCursor = 0
 				self.atkRCursor = 0
 				self.dotCursor = 0
+				self.laneCursor = 0
 				self.overflowed = false
+				self.laneOverflowed = false
 				return
 			end
 		end
@@ -128,7 +134,9 @@ script GizmoManager extends Logic
 		self.atkYCursor = 0
 		self.atkRCursor = 0
 		self.dotCursor = 0
+		self.laneCursor = 0
 		self.overflowed = false
+		self.laneOverflowed = false
 	end
 
 	@ExecSpace("Server")
@@ -197,8 +205,8 @@ script GizmoManager extends Logic
 			self:BakeSquare(self.BlockStart + bi, Color(1.0, 0.25, 0.2, 0.95), lw)
 			bi = bi + 1
 		end
-		-- 전투
-		self:BakeCircle(self.IdxFlash, _GameConstants.RadiusAttack, Color(0.3, 0.8, 1.0, 0.85), cw)
+		-- 전투: 플레이어 평타(하늘 박스) + 투사체(주황 원) + 적공격(노랑/빨강 박스) + 레인(노랑 박스)
+		self:BakeSquare(self.IdxFlash, Color(0.3, 0.8, 1.0, 0.85), cw)
 		local pi = 0
 		while pi < self.ProjCount do
 			self:BakeCircle(self.ProjStart + pi, _GameConstants.RadiusProjectile, Color(1.0, 0.5, 0.1, 0.9), cw)
@@ -206,9 +214,14 @@ script GizmoManager extends Logic
 		end
 		local ai = 0
 		while ai < self.AtkCount do
-			self:BakeCircle(self.AtkYStart + ai, 1.0, Color(1.0, 0.9, 0.2, 0.85), cw)
-			self:BakeCircle(self.AtkRStart + ai, 1.0, Color(1.0, 0.2, 0.2, 0.9), cw)
+			self:BakeSquare(self.AtkYStart + ai, Color(1.0, 0.9, 0.2, 0.85), cw)
+			self:BakeSquare(self.AtkRStart + ai, Color(1.0, 0.2, 0.2, 0.9), cw)
 			ai = ai + 1
+		end
+		local li = 0
+		while li < self.LaneCount do
+			self:BakeSquare(self.LaneStart + li, Color(1.0, 0.9, 0.2, 0.85), cw)
+			li = li + 1
 		end
 		log("[GizmoManager] baked " .. tostring(self.poolSize) .. " line holders (retained static Points)")
 	end
@@ -314,8 +327,8 @@ script GizmoManager extends Logic
 	end
 
 	@ExecSpace("ClientOnly")
-	method void PlaceUnitCircle(integer idx, number x, number y, number radius)
-		-- 단위원(적공격): Scale=(r,r)로 반지름 적용.
+	method void PlaceBoxAABB(integer idx, number x, number y, number hw, number hh)
+		-- 단위정사각 홀더를 AABB로 배치(rot=0, Scale=(2hw,2hh)).
 		local e = self:Holder(idx)
 		if e == nil or isvalid(e) == false then return end
 		local lrc = e.LineRendererComponent
@@ -323,7 +336,7 @@ script GizmoManager extends Logic
 		local tf = e.TransformComponent
 		if isvalid(tf) then
 			tf.WorldPosition = Vector3(x, y, self.gizmoZ)
-			tf.Scale = Vector3(radius, radius, 1)
+			tf.Scale = Vector3(hw * 2.0, hh * 2.0, 1)
 			tf.WorldZRotation = 0
 		end
 		lrc.Enable = true
@@ -386,9 +399,9 @@ script GizmoManager extends Logic
 	end
 
 	@ExecSpace("ClientOnly")
-	method void AttackFlash(Vector2 center)
-		-- 플레이어 공격 플래시 원(반지름 RadiusAttack).
-		self:PlaceFixed(self.IdxFlash, center.x, center.y)
+	method void AttackFlash(Vector2 center, number hw, number hh)
+		-- 플레이어 평타 박스(하늘색 고정 슬롯).
+		self:PlaceBoxAABB(self.IdxFlash, center.x, center.y, hw, hh)
 	end
 
 	@ExecSpace("ClientOnly")
@@ -404,25 +417,43 @@ script GizmoManager extends Logic
 	end
 
 	@ExecSpace("ClientOnly")
-	method void EnemyAttack(Vector2 center, number radius, boolean isRed)
-		-- 적 근접/보스 공격 원. 색별 풀(노랑 텔레그래프 / 빨강 명중임박) — 색은 풀 선택으로(Points 불변).
+	method void EnemyAttackBox(Vector2 center, number hw, number hh, boolean isRed)
+		-- 적 근접/보스 공격 박스(AABB). 색별 풀(노랑 텔레그래프 / 빨강 명중임박·무패링) 커서.
+		local idx
 		if isRed then
-			if self.atkRCursor >= self.AtkCount then
-				self:WarnOverflow("atkR")
-				return
-			end
-			local idx = self.AtkRStart + self.atkRCursor
+			if self.atkRCursor >= self.AtkCount then self:WarnOverflow("atkR") return end
+			idx = self.AtkRStart + self.atkRCursor
 			self.atkRCursor = self.atkRCursor + 1
-			self:PlaceUnitCircle(idx, center.x, center.y, radius)
 		else
-			if self.atkYCursor >= self.AtkCount then
-				self:WarnOverflow("atkY")
-				return
-			end
-			local idx = self.AtkYStart + self.atkYCursor
+			if self.atkYCursor >= self.AtkCount then self:WarnOverflow("atkY") return end
+			idx = self.AtkYStart + self.atkYCursor
 			self.atkYCursor = self.atkYCursor + 1
-			self:PlaceUnitCircle(idx, center.x, center.y, radius)
 		end
+		self:PlaceBoxAABB(idx, center.x, center.y, hw, hh)
+	end
+
+	@ExecSpace("ClientOnly")
+	method void AttackLane(Vector2 origin, Vector2 dir, number length, number width)
+		-- 원거리 예상 레인(OBB): 원점에서 dir로 length만큼 뻗는 회전 직사각형. 노랑 레인 풀 커서.
+		if self.laneCursor >= self.LaneCount then
+			self:WarnOverflow("lane")
+			return
+		end
+		local idx = self.LaneStart + self.laneCursor
+		self.laneCursor = self.laneCursor + 1
+		local e = self:Holder(idx)
+		if e == nil or isvalid(e) == false then return end
+		local lrc = e.LineRendererComponent
+		if lrc == nil or isvalid(lrc) == false then return end
+		local len = length
+		if len < 0.0001 then len = 0.0001 end
+		local tf = e.TransformComponent
+		if isvalid(tf) then
+			tf.WorldPosition = Vector3(origin.x + dir.x * len * 0.5, origin.y + dir.y * len * 0.5, self.gizmoZ)
+			tf.WorldZRotation = math.deg(math.atan(dir.y, dir.x))
+			tf.Scale = Vector3(len, width, 1)
+		end
+		lrc.Enable = true
 	end
 
 	@ExecSpace("ClientOnly")
