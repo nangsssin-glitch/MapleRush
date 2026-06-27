@@ -13,6 +13,14 @@ script HUDController extends Component
 
 	property TextComponent bossText = "bd55e3e9-8b53-4b12-98bc-d97e4ab37155"
 
+	-- 능력 표시(화면 상단 중앙, 크게). 장착 능력 + 사용횟수 + "⚡사용!" 플래시.
+	property TextComponent abilityCenterText = "cb052eec-02ef-4986-b10f-9aab3b9d8db7"
+
+	-- 능력 사용 플래시(사용횟수 감소 감지 → "사용!" 1초 표시).
+	@HideFromInspector property integer prevAbilityUses = -1
+
+	@HideFromInspector property number abilityFlashUntil = -999.0
+
 	@ExecSpace("ClientOnly")
 	method void OnBeginPlay()
 		-- HUD 컨트롤러 시작 로그 (검증용).
@@ -49,7 +57,20 @@ script HUDController extends Component
 				elseif abilityName == "clearProjectiles" then
 					abilityName = "투사체 무효화"
 				end
-				self.abilityText.Text = "능력: " .. abilityName .. " (" .. tostring(ability.UsesLeft) .. ")"
+				-- 사용횟수가 줄면(=능력 사용) 1초간 "사용!" 플래시.
+				local uses = ability.UsesLeft
+				if self.prevAbilityUses >= 0 and uses < self.prevAbilityUses then
+					self.abilityFlashUntil = _WallClock:Now() + 1.0
+				end
+				self.prevAbilityUses = uses
+				local txt = "능력: " .. abilityName .. " (" .. tostring(uses) .. ")"
+				if _WallClock:Now() < self.abilityFlashUntil then
+					txt = txt .. "  ⚡사용!"
+				end
+				self.abilityText.Text = txt
+				if self.abilityCenterText ~= nil and isvalid(self.abilityCenterText) then
+					self.abilityCenterText.Text = txt
+				end
 			end
 		end
 		if self.itemsText ~= nil and isvalid(self.itemsText) then

@@ -118,7 +118,7 @@ script EnemyMelee extends Component
 				self:PlayClip(_GameConstants.MeleeAttackClip)
 				log("[EnemyMelee] " .. self.Entity.Name .. " windup start (parryable=" .. tostring(self.AttackParryable) .. ")")
 			elseif dist <= self.DetectRadius then
-				self:ChaseToward(playerCenter.x, myCenter.x, timeScale)
+				self:ChaseToward(playerCenter.x, myCenter.x, timeScale, delta)
 				self:PlayClip(_GameConstants.MeleeMoveClip)
 			else
 				self:StopMove()
@@ -140,25 +140,55 @@ script EnemyMelee extends Component
 		return nil
 	end
 
+	-- 맵 타입 캐시: 0=미해석 / 1=SideView / 2=MapleTile (적은 한 맵에서만 살므로 1회 해석 후 캐시).
+	@HideFromInspector
+	property integer mapKindCache = 0
+
 	@ExecSpace("ServerOnly")
-	method void ChaseToward(number targetX, number myX, number timeScale)
-		-- 추격 이동: 낭떠러지에서 정지 (V2 실측 — 전방 바닥 하향 Raycast로 발판 유무 검사. PredictFootholdEnd는 연결 세그먼트 경계를 끝으로 오판하므로 사용 금지).
-		local rb = self.Entity.RigidbodyComponent
-		if rb == nil then return end
-		if rb:IsOnGround() == false then return end
+	method boolean IsSideViewMap()
+		-- 현재 맵이 RectTile/SideView인지 (RectTileMapComponent 유무). 결과 캐시 → 매 프레임 child 탐색 방지.
+		if self.mapKindCache == 0 then
+			local map = self.Entity.CurrentMap
+			if isvalid(map) == false then return false end
+			if isvalid(map:GetFirstChildComponentByTypeName("MOD.Core.RectTileMapComponent", true)) then
+				self.mapKindCache = 1
+			else
+				self.mapKindCache = 2
+			end
+		end
+		return self.mapKindCache == 1
+	end
+
+	@ExecSpace("ServerOnly")
+	method void ChaseToward(number targetX, number myX, number timeScale, number delta)
+		-- 추격 이동. SideView=MovementComponent:MoveToDirection(직접 MoveVelocity는 비-플레이어에 무효),
+		-- MapleTile=Rigidbody.MoveVelocity + 풋홀드 낭떠러지 정지. 맵 타입으로 분기 → MapleTile 회귀 없음.
 		local dir = 1
 		if targetX < myX then dir = -1 end
 		local map = self.Entity.CurrentMap
-		if isvalid(map) and isvalid(map.FootholdComponent) then
-			local pos = self.Entity.TransformComponent.WorldPosition
-			local probe = Vector2(pos.x + dir * 0.5, pos.y + 0.3)
-			local ground = map.FootholdComponent:Raycast(probe, Vector2(0, -1), 1.0)
-			if ground == nil then
-				self:StopMove()
-				return
+		if self:IsSideViewMap() then
+			-- SideView/RectTile
+			local svb = self.Entity.SideviewbodyComponent
+			if isvalid(svb) == false or svb:IsOnGround() == false then return end
+			local mc = self.Entity.MovementComponent
+			if isvalid(mc) == false then return end
+			mc.InputSpeed = _GameConstants.EnemyChaseSpeed * timeScale
+			mc:MoveToDirection(Vector2(dir, 0), delta)
+		else
+			-- MapleTile (기존 로직 유지)
+			local rb = self.Entity.RigidbodyComponent
+			if isvalid(rb) == false or rb:IsOnGround() == false then return end
+			if isvalid(map) and isvalid(map.FootholdComponent) then
+				local pos = self.Entity.TransformComponent.WorldPosition
+				local probe = Vector2(pos.x + dir * 0.5, pos.y + 0.3)
+				local ground = map.FootholdComponent:Raycast(probe, Vector2(0, -1), 1.0)
+				if ground == nil then
+					self:StopMove()
+					return
+				end
 			end
+			rb.MoveVelocity = Vector2(dir * timeScale, 0)
 		end
-		rb.MoveVelocity = Vector2(dir * timeScale, 0)
 		-- 스프라이트는 좌향 기본 → 우측 이동 시 FlipX
 		local sprite = self.Entity.SpriteRendererComponent
 		if isvalid(sprite) then
@@ -168,11 +198,11 @@ script EnemyMelee extends Component
 
 	@ExecSpace("ServerOnly")
 	method void StopMove()
-		-- 이동 정지.
+		-- 이동 정지(양 모드).
+		local mc = self.Entity.MovementComponent
+		if isvalid(mc) then mc:Stop() end
 		local rb = self.Entity.RigidbodyComponent
-		if rb ~= nil then
-			rb.MoveVelocity = Vector2(0, 0)
-		end
+		if isvalid(rb) then rb.MoveVelocity = Vector2(0, 0) end
 	end
 
 end
