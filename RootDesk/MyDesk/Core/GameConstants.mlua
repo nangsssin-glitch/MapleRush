@@ -19,7 +19,7 @@ script GameConstants extends Logic
 	-- ========== 범위 반지름 (플레이어 중심 원형, world unit) ==========
 	property number RadiusAttack = 2.0
 
-	property number RadiusSlowTrigger = 1.0
+	property number RadiusSlowTrigger = 2.5
 
 	property number RadiusMeleeDetect = 3.0
 
