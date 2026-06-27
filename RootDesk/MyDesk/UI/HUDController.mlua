@@ -21,11 +21,24 @@ script HUDController extends Component
 
 	property TextComponent itemText3 = "a4531e18-c11b-4e6a-94ca-112c605f5154"
 
-	property TextComponent bossText = "bd55e3e9-8b53-4b12-98bc-d97e4ab37155"
+	-- 보스 오버레이 (보스 스테이지에서만 노출) — MR-K.
+	property Entity bossOverlay = "8f921fca-6809-47ee-a002-b0f053bff0d8"
+
+	property SpriteGUIRendererComponent bossHpFill = "e76fadce-6bed-4305-b1b4-52af96041575"
+
+	property TextComponent bossHpText = "ae9f17ae-0972-4d3c-90ed-878b2a5cb797"
+
+	property SpriteGUIRendererComponent groggyFill = "ef27eb6d-e8db-4481-b8ad-a7bf9bff19a6"
+
+	property TextComponent groggyText = "f5c7daef-39fb-479f-8af4-df28e5fcb57c"
 
 	@ExecSpace("ClientOnly")
 	method void OnBeginPlay()
 		-- HUD 컨트롤러 시작 로그 (검증용).
+		-- 보스 오버레이는 기본 숨김 (보스 스테이지 진입 시 OnUpdate가 노출).
+		if isvalid(self.bossOverlay) then
+			self.bossOverlay.Enable = false
+		end
 		log("[HUDController] OnBeginPlay (visual HUD)")
 	end
 
@@ -83,9 +96,9 @@ script HUDController extends Component
 			self:UpdateItemCard(self.itemText3, items.Slot3, items.ActiveSlot == 3)
 		end
 
-		-- 보스 HP/그로기 (보스 스테이지에서만).
-		if isvalid(self.bossText) then
-			self:UpdateBossText(player)
+		-- 보스 HP/그로기 오버레이 (보스 스테이지에서만).
+		if isvalid(self.bossOverlay) then
+			self:UpdateBossOverlay(player)
 		end
 	end
 
@@ -109,11 +122,11 @@ script HUDController extends Component
 	end
 
 	@ExecSpace("ClientOnly")
-	method void UpdateBossText(Entity player)
-		-- 보스 HP/그로기 게이지 표시 (보스 스테이지에서만 보임).
+	method void UpdateBossOverlay(Entity player)
+		-- 보스 HP/그로기 게이지 오버레이 갱신 (보스 스테이지에서만 노출).
 		local map = player.CurrentMap
 		if isvalid(map) == false then
-			self.bossText.Text = ""
+			self.bossOverlay.Enable = false
 			return
 		end
 		local list = map:GetChildComponentsByTypeName("script.EnemyHealth", true)
@@ -121,23 +134,61 @@ script HUDController extends Component
 			---@type EnemyHealth
 			local comp = compAny
 			if isvalid(comp.Entity) and comp.EnemyKind == "boss" and comp.IsDead == false then
-				local line = "보스 HP " .. tostring(math.floor(comp.HP)) .. "/" .. tostring(math.floor(comp.MaxHP))
+				-- 보스 발견: 오버레이 노출 + HP 바 갱신.
+				self.bossOverlay.Enable = true
+				local ratio = 0
+				if comp.MaxHP > 0 then ratio = comp.HP / comp.MaxHP end
+				if ratio < 0 then ratio = 0 elseif ratio > 1 then ratio = 1 end
+				if isvalid(self.bossHpFill) then self.bossHpFill.FillAmount = ratio end
+				if isvalid(self.bossHpText) then
+					self.bossHpText.Text = tostring(math.floor(comp.HP)) .. " / " .. tostring(math.floor(comp.MaxHP))
+				end
+				-- 그로기 게이지 + 상태 연출.
 				---@type GroggyGauge
 				local gg = comp.Entity:GetComponent("script.GroggyGauge")
-				if gg ~= nil then
-					if gg.IsGroggy == true then
-						line = line .. "  [그로기!]"
-					else
-						local pct = 0
-						if gg.GaugeMax > 0 then pct = math.floor(gg.Gauge / gg.GaugeMax * 100) end
-						line = line .. "  그로기 " .. tostring(pct) .. "%"
-					end
-				end
-				self.bossText.Text = line
+				self:UpdateGroggy(gg)
 				return
 			end
 		end
-		self.bossText.Text = ""
+		-- 보스 없음: 오버레이 숨김.
+		self.bossOverlay.Enable = false
+	end
+
+	@ExecSpace("ClientOnly")
+	method void UpdateGroggy(GroggyGauge gg)
+		-- 그로기 바 갱신: 평상시=충전 비율, 그로기 상태=가득 채움 + 점멸 연출.
+		if gg == nil then
+			if isvalid(self.groggyFill) then self.groggyFill.FillAmount = 0 end
+			if isvalid(self.groggyText) then self.groggyText.Text = "" end
+			return
+		end
+		if gg.IsGroggy == true then
+			-- 그로기 발동: 가득 + 흰/노랑 점멸로 강조.
+			if isvalid(self.groggyFill) then
+				self.groggyFill.FillAmount = 1
+				local on = (math.floor(_UtilLogic.ElapsedSeconds * 6) % 2) == 0
+				if on then
+					self.groggyFill.Color = Color(1, 1, 1, 1)
+				else
+					self.groggyFill.Color = Color(0.98, 0.66, 0.12, 1)
+				end
+			end
+			if isvalid(self.groggyText) then self.groggyText.Text = "그로기!" end
+		else
+			-- 평상시: 충전 비율 표시.
+			local pct = 0
+			local ratio = 0
+			if gg.GaugeMax > 0 then
+				ratio = gg.Gauge / gg.GaugeMax
+				if ratio < 0 then ratio = 0 elseif ratio > 1 then ratio = 1 end
+				pct = math.floor(ratio * 100)
+			end
+			if isvalid(self.groggyFill) then
+				self.groggyFill.FillAmount = ratio
+				self.groggyFill.Color = Color(0.98, 0.66, 0.12, 1)
+			end
+			if isvalid(self.groggyText) then self.groggyText.Text = "그로기 " .. tostring(pct) .. "%" end
+		end
 	end
 
 	@ExecSpace("ClientOnly")
