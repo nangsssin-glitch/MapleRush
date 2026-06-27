@@ -135,6 +135,26 @@ script CombatPrimitives extends Logic
 		return dx * dx + dy * dy <= r * r
 	end
 
+	method boolean BoxCircleOverlap(Vector2 boxCenter, number hw, number hh, Vector2 circleCenter, number r)
+		-- AABB(중심 boxCenter, 반폭 hw, 반높이 hh) vs 원(circleCenter, r). 원 중심을 박스에 클램프한 최근접점 거리 ≤ r.
+		local nx = circleCenter.x
+		local minx = boxCenter.x - hw
+		local maxx = boxCenter.x + hw
+		if nx < minx then nx = minx elseif nx > maxx then nx = maxx end
+		local ny = circleCenter.y
+		local miny = boxCenter.y - hh
+		local maxy = boxCenter.y + hh
+		if ny < miny then ny = miny elseif ny > maxy then ny = maxy end
+		local dx = circleCenter.x - nx
+		local dy = circleCenter.y - ny
+		return dx * dx + dy * dy <= r * r
+	end
+
+	method boolean BoxBoxOverlap(Vector2 aCenter, number aHw, number aHh, Vector2 bCenter, number bHw, number bHh)
+		-- AABB-AABB. 두 박스 중심 거리가 각 축 반폭/반높이 합 이내면 겹침.
+		return math.abs(aCenter.x - bCenter.x) <= (aHw + bHw) and math.abs(aCenter.y - bCenter.y) <= (aHh + bHh)
+	end
+
 	method table MakeAttack(Vector2 center, number radius, number damage, boolean parryable, string ownerSide)
 		-- 공통 공격 데이터 구조 (F5). 플레이어/적/투사체/아이템 공격 전부 이 구조로 표현.
 		return {
