@@ -5,7 +5,7 @@
       "args": [
         "/c",
         "call",
-        "C:\\Users\\dust\\AppData\\Local\\Nexon\\MapleStory Worlds\\MakerMCP\\msw-maker-mcp.bat"
+        "%LOCALAPPDATA%\\Nexon\\MapleStory Worlds\\MakerMCP\\msw-maker-mcp.bat"
       ]
     },
     "msw-mcp": {

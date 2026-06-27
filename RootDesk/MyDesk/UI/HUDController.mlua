@@ -3,85 +3,108 @@ script HUDController extends Component
 
 	property TextComponent livesText = "508d0bdb-25f9-4e80-92e4-60ae101c165f"
 
-	property TextComponent dashText = "481e0444-cff3-415a-a7fe-125ab592ced3"
+	property SpriteGUIRendererComponent dashPip1 = "73d589cc-55af-43e2-bef7-59ba7946426a"
 
-	property TextComponent mesoText = "72e684e1-9d91-4e0f-9c8e-378e1362e978"
+	property SpriteGUIRendererComponent dashPip2 = "36d524fa-b0ab-4b2b-9891-5c7754bca054"
 
-	property TextComponent abilityText = "ef5d4b84-86c9-4d79-8137-de4b6c782dbb"
+	property SpriteGUIRendererComponent dashPip3 = "1c126357-9a5f-4728-89b9-5355ca47ce41"
 
-	property TextComponent itemsText = "353f2b66-fc22-42f6-bb7a-b853be241a31"
+	property SpriteGUIRendererComponent dashPip4 = "3e85c28f-42af-45b8-9ae9-91291b89e7b3"
+
+	property TextComponent mesoText = "2f3eed4a-9c34-4009-b5c1-cf4a2f025d98"
+
+	property TextComponent abilityBtnText = "01e75f7d-0475-4ec7-8e25-4226bbef1e5c"
+
+	property TextComponent itemText1 = "806b1d40-0be5-4407-8f8a-09f2229239e3"
+
+	property TextComponent itemText2 = "287c275b-1f56-4a49-83a9-1d383c755f48"
+
+	property TextComponent itemText3 = "a4531e18-c11b-4e6a-94ca-112c605f5154"
 
 	property TextComponent bossText = "bd55e3e9-8b53-4b12-98bc-d97e4ab37155"
-
-	-- 능력 표시(화면 상단 중앙, 크게). 장착 능력 + 사용횟수 + "⚡사용!" 플래시.
-	property TextComponent abilityCenterText = "cb052eec-02ef-4986-b10f-9aab3b9d8db7"
-
-	-- 능력 사용 플래시(사용횟수 감소 감지 → "사용!" 1초 표시).
-	@HideFromInspector property integer prevAbilityUses = -1
-
-	@HideFromInspector property number abilityFlashUntil = -999.0
 
 	@ExecSpace("ClientOnly")
 	method void OnBeginPlay()
 		-- HUD 컨트롤러 시작 로그 (검증용).
-		log("[HUDController] OnBeginPlay")
+		log("[HUDController] OnBeginPlay (visual HUD)")
 	end
 
 	@ExecSpace("ClientOnly")
 	method void OnUpdate(number delta)
-		-- 실제 시간 기준 HUD 갱신 (슬로우 모션 무관 — UI는 매 프레임 폴링).
+		-- 실제 시간 기준 HUD 갱신 (UI는 매 프레임 폴링).
 		local player = _UserService.LocalPlayer
 		if player == nil then return end
-		if self.dashText ~= nil then
-			---@type PlayerDash
-			local dash = player:GetComponent("script.PlayerDash")
-			if dash ~= nil then
-				self.dashText.Text = "대시 " .. tostring(dash.DashCount) .. "/" .. tostring(dash.MaxDash)
-			end
+
+		-- 목숨: 아이콘 + "× N" 텍스트.
+		if isvalid(self.livesText) then
+			self.livesText.Text = "× " .. tostring(_GameStateManager.CurrentLives)
 		end
-		if self.livesText ~= nil then
-			self.livesText.Text = "목숨 " .. tostring(_GameStateManager.CurrentLives) .. "/" .. tostring(_GameStateManager.MaxLives)
+
+		-- 대시: pip 사각형 (충전=노랑 / 사용=배경색 / MaxDash 초과=숨김).
+		---@type PlayerDash
+		local dash = player:GetComponent("script.PlayerDash")
+		if dash ~= nil then
+			self:UpdateDashPip(self.dashPip1, 1, dash.DashCount, dash.MaxDash)
+			self:UpdateDashPip(self.dashPip2, 2, dash.DashCount, dash.MaxDash)
+			self:UpdateDashPip(self.dashPip3, 3, dash.DashCount, dash.MaxDash)
+			self:UpdateDashPip(self.dashPip4, 4, dash.DashCount, dash.MaxDash)
 		end
-		if self.mesoText ~= nil and isvalid(self.mesoText) then
-			self.mesoText.Text = "메소 " .. tostring(math.floor(_GameStateManager.Meso))
+
+		-- 메소: 우상단 (코인 아이콘 옆).
+		if isvalid(self.mesoText) then
+			self.mesoText.Text = "보유 메소: " .. tostring(math.floor(_GameStateManager.Meso))
 		end
-		if self.abilityText ~= nil and isvalid(self.abilityText) then
+
+		-- 능력: 우측 버튼 라벨.
+		if isvalid(self.abilityBtnText) then
 			---@type PlayerAbility
 			local ability = player:GetComponent("script.PlayerAbility")
 			if ability ~= nil then
-				local abilityName = ability.AbilityId
-				if abilityName == "" then
-					abilityName = "없음"
-				elseif abilityName == "invincible" then
-					abilityName = "임시 무적"
-				elseif abilityName == "clearProjectiles" then
-					abilityName = "투사체 무효화"
+				local name = ability.AbilityId
+				if name == "" then
+					name = "능력 없음"
+				elseif name == "invincible" then
+					name = "무적 (" .. tostring(ability.UsesLeft) .. ")"
+				elseif name == "clearProjectiles" then
+					name = "투사체 무효 (" .. tostring(ability.UsesLeft) .. ")"
+				else
+					name = name .. " (" .. tostring(ability.UsesLeft) .. ")"
 				end
-				-- 사용횟수가 줄면(=능력 사용) 1초간 "사용!" 플래시.
-				local uses = ability.UsesLeft
-				if self.prevAbilityUses >= 0 and uses < self.prevAbilityUses then
-					self.abilityFlashUntil = _WallClock:Now() + 1.0
-				end
-				self.prevAbilityUses = uses
-				local txt = "능력: " .. abilityName .. " (" .. tostring(uses) .. ")"
-				if _WallClock:Now() < self.abilityFlashUntil then
-					txt = txt .. "  ⚡사용!"
-				end
-				self.abilityText.Text = txt
-				if self.abilityCenterText ~= nil and isvalid(self.abilityCenterText) then
-					self.abilityCenterText.Text = txt
-				end
+				self.abilityBtnText.Text = name
 			end
 		end
-		if self.itemsText ~= nil and isvalid(self.itemsText) then
-			---@type PlayerItems
-			local items = player:GetComponent("script.PlayerItems")
-			if items ~= nil then
-				self.itemsText.Text = "아이템: " .. self:ItemLabel(items.Slot1, items.ActiveSlot == 1) .. " " .. self:ItemLabel(items.Slot2, items.ActiveSlot == 2) .. " " .. self:ItemLabel(items.Slot3, items.ActiveSlot == 3)
-			end
+
+		-- 아이템: 3개 카드 라벨 + 활성 슬롯은 카드 색으로 강조.
+		---@type PlayerItems
+		local items = player:GetComponent("script.PlayerItems")
+		if items ~= nil then
+			self:UpdateItemCard(self.itemText1, items.Slot1, items.ActiveSlot == 1)
+			self:UpdateItemCard(self.itemText2, items.Slot2, items.ActiveSlot == 2)
+			self:UpdateItemCard(self.itemText3, items.Slot3, items.ActiveSlot == 3)
 		end
-		if self.bossText ~= nil and isvalid(self.bossText) then
+
+		-- 보스 HP/그로기 (보스 스테이지에서만).
+		if isvalid(self.bossText) then
 			self:UpdateBossText(player)
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void UpdateDashPip(SpriteGUIRendererComponent pip, integer idx, integer count, integer max)
+		-- 대시 pip 1칸 갱신: MaxDash 초과 칸은 비활성(숨김), 그 이내에서 충전=노랑 / 미충전=배경색.
+		if isvalid(pip) == false then return end
+		if idx > max then
+			-- 최대 대시 개수를 넘는 칸은 아예 비활성화(렌더 숨김).
+			pip.Enable = false
+			return
+		end
+		pip.Enable = true
+		if idx <= count then
+			-- 현재 대시 개수만큼 노랑색으로 채움.
+			pip.Color = Color(0.96, 0.78, 0.20, 1)
+		else
+			-- 충전 안 된 칸은 배경색(빈 슬롯).
+			pip.Color = Color(0.16, 0.20, 0.26, 1)
 		end
 	end
 
@@ -118,17 +141,32 @@ script HUDController extends Component
 	end
 
 	@ExecSpace("ClientOnly")
-	method string ItemLabel(string itemId, boolean active)
-		-- 아이템 슬롯 라벨 ([짱돌] 형식, 활성 시 ▶ 표시).
-		local label = "-"
-		if itemId == "rock" then label = "짱돌"
-		elseif itemId == "smoke" then label = "연막"
-		elseif itemId == "flash" then label = "섬광"
+	method void UpdateItemCard(TextComponent text, string itemId, boolean active)
+		-- 아이템 카드 1칸 갱신: 라벨 + 활성 슬롯은 카드 배경을 금색으로 강조(▶ 문자 대신).
+		if isvalid(text) == false then return end
+		text.Text = self:ItemLabel(itemId)
+		local sprite = text.Entity.SpriteGUIRendererComponent
+		if isvalid(sprite) then
+			if active then
+				-- 활성(사용될 슬롯): 금색 배경 + 대비용 어두운 글자.
+				sprite.Color = Color(0.96, 0.78, 0.20, 1)
+				text.FontColor = Color(0.10, 0.10, 0.12, 1)
+			else
+				-- 비활성: 기본 배경 + 흰 글자.
+				sprite.Color = Color(0.16, 0.20, 0.28, 0.95)
+				text.FontColor = Color(1, 1, 1, 1)
+			end
 		end
-		if active then
-			return "[▶" .. label .. "]"
+	end
+
+	@ExecSpace("ClientOnly")
+	method string ItemLabel(string itemId)
+		-- 아이템 슬롯 라벨 ([짱돌] 형식). 활성 표시는 카드 색으로 처리.
+		if itemId == "rock" then return "짱돌"
+		elseif itemId == "smoke" then return "연막"
+		elseif itemId == "flash" then return "섬광"
 		end
-		return "[" .. label .. "]"
+		return "-"
 	end
 
 end
