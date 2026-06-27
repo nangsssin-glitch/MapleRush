@@ -15,6 +15,15 @@ script HUDController extends Component
 
 	property TextComponent abilityBtnText = "01e75f7d-0475-4ec7-8e25-4226bbef1e5c"
 
+	-- 능력 사용 피드백(중앙 플래시) — #6(MR-I) 기능 이식. 사용횟수 감소 감지 → "⚡ 능력명 사용!" 1.2s 표시.
+	property TextComponent abilityCenterText = "e105adbd-6be6-4fda-acc2-505cfc14ad5c"
+
+	@HideFromInspector property integer prevAbilityUses = -1
+
+	@HideFromInspector property number abilityFlashUntil = -999.0
+
+	@HideFromInspector property string abilityFlashName = ""
+
 	property TextComponent itemText1 = "806b1d40-0be5-4407-8f8a-09f2229239e3"
 
 	property TextComponent itemText2 = "287c275b-1f56-4a49-83a9-1d383c755f48"
@@ -68,23 +77,11 @@ script HUDController extends Component
 			self.mesoText.Text = "보유 메소: " .. tostring(math.floor(_GameStateManager.Meso))
 		end
 
-		-- 능력: 우측 버튼 라벨.
-		if isvalid(self.abilityBtnText) then
-			---@type PlayerAbility
-			local ability = player:GetComponent("script.PlayerAbility")
-			if ability ~= nil then
-				local name = ability.AbilityId
-				if name == "" then
-					name = "능력 없음"
-				elseif name == "invincible" then
-					name = "무적 (" .. tostring(ability.UsesLeft) .. ")"
-				elseif name == "clearProjectiles" then
-					name = "투사체 무효 (" .. tostring(ability.UsesLeft) .. ")"
-				else
-					name = name .. " (" .. tostring(ability.UsesLeft) .. ")"
-				end
-				self.abilityBtnText.Text = name
-			end
+		-- 능력: 우측 버튼 라벨 + 사용 시 중앙 플래시.
+		---@type PlayerAbility
+		local ability = player:GetComponent("script.PlayerAbility")
+		if ability ~= nil then
+			self:UpdateAbility(ability)
 		end
 
 		-- 아이템: 3개 카드 라벨 + 활성 슬롯은 카드 색으로 강조.
@@ -188,6 +185,44 @@ script HUDController extends Component
 				self.groggyFill.Color = Color(0.98, 0.66, 0.12, 1)
 			end
 			if isvalid(self.groggyText) then self.groggyText.Text = "그로기 " .. tostring(pct) .. "%" end
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void UpdateAbility(PlayerAbility ability)
+		-- 능력 라벨 갱신 + 사용 감지 시 중앙 "⚡ 능력명 사용!" 플래시 (1.2s). #6(MR-I) 이식.
+		local id = ability.AbilityId
+		local uses = ability.UsesLeft
+		-- 표시명.
+		local label = "능력 없음"
+		if id == "invincible" then
+			label = "무적"
+		elseif id == "clearProjectiles" then
+			label = "투사체 무효"
+		elseif id ~= "" then
+			label = id
+		end
+		-- 사용 감지: 사용횟수가 줄면(=발동) 중앙 플래시 트리거.
+		if self.prevAbilityUses >= 0 and uses < self.prevAbilityUses and id ~= "" then
+			self.abilityFlashUntil = _UtilLogic.ElapsedSeconds + 1.2
+			self.abilityFlashName = label
+		end
+		self.prevAbilityUses = uses
+		-- 우측 버튼 라벨.
+		if isvalid(self.abilityBtnText) then
+			if id == "" then
+				self.abilityBtnText.Text = "능력 없음"
+			else
+				self.abilityBtnText.Text = label .. " (" .. tostring(uses) .. ")"
+			end
+		end
+		-- 중앙 플래시 텍스트 (발동 직후 1.2s).
+		if isvalid(self.abilityCenterText) then
+			if _UtilLogic.ElapsedSeconds < self.abilityFlashUntil then
+				self.abilityCenterText.Text = "⚡ " .. self.abilityFlashName .. " 사용!"
+			else
+				self.abilityCenterText.Text = ""
+			end
 		end
 	end
 
