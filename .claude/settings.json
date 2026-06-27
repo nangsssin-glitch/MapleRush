@@ -68,6 +68,17 @@
     ],
     "SessionStart": [
       {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/skills/maplerush-tickets/board.cjs\"",
+            "timeout": 10,
+            "statusMessage": "Loading ticket board..."
+          }
+        ]
+      },
+      {
         "matcher": "",
         "hooks": [
           {
@@ -84,17 +95,6 @@
             "type": "command",
             "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/update-check/update-check.cjs\"",
             "timeout": 10
-          }
-        ]
-      },
-      {
-        "matcher": "startup|resume",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/skills/maplerush-tickets/board.cjs\"",
-            "timeout": 10,
-            "statusMessage": "Loading ticket board..."
           }
         ]
       }
