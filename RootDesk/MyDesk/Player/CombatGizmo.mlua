@@ -1,7 +1,7 @@
 @Component
 script CombatGizmo extends Component
 
-	-- 전투 디버그 기즈모 '소스'(@Component ClientOnly LocalPlayer). 전부 _GizmoManager:Circle로 그림. 게이트 = _GameConstants.DrawGizmo.
+	-- 전투 디버그 기즈모 '소스'(@Component ClientOnly LocalPlayer). 매니저(retained-mode) 의미 메서드로 그림. 게이트 = _GameConstants.DrawGizmo.
 	-- (1) 플레이어 공격 플래시원(하늘색) — 형제 PlayerCombat.lastAttackTime 폴링(쿨/대시/아이템 게이트 통과한 공격만 기록됨).
 	-- (2) 적 투사체 원(주황) — map의 script.Projectile 열거, OwnerSide=="enemy" 필터(반사 시 'player' 동기→자동 제외). 브로드캐스트 불필요.
 	-- (3) 적 근접/보스 공격원(windup=노랑 / 명중임박·무패링=빨강) — 서버 브로드캐스트 수신분(_CombatPrimitives.clientEnemyAttacks).
@@ -22,7 +22,6 @@ script CombatGizmo extends Component
 		if _GameConstants.DrawGizmo == false then return end
 		local player = _UserService.LocalPlayer
 		if player == nil or isvalid(player) == false or self.Entity ~= player then return end
-		local width = _GameConstants.GizmoCombatWidth
 
 		-- (1) 플레이어 공격 플래시원 (발 중심, 반지름 RadiusAttack, 짧은 시간)
 		if self.combat == nil then self.combat = self.Entity:GetComponent("script.PlayerCombat") end
@@ -31,7 +30,7 @@ script CombatGizmo extends Component
 			local pc = self.combat
 			if _WallClock:IsExpired(pc.lastAttackTime, _GameConstants.GizmoAttackFlash) == false then
 				local pp = self.Entity.TransformComponent.WorldPosition
-				_GizmoManager:Circle(Vector2(pp.x, pp.y), _GameConstants.RadiusAttack, Color(0.3, 0.8, 1.0, 0.85), width)
+				_GizmoManager:AttackFlash(Vector2(pp.x, pp.y))
 			end
 		end
 
@@ -47,7 +46,7 @@ script CombatGizmo extends Component
 				local e = comp.Entity
 				if isvalid(e) and comp.OwnerSide == "enemy" then
 					local p = e.TransformComponent.WorldPosition
-					_GizmoManager:Circle(Vector2(p.x, p.y), _GameConstants.RadiusProjectile, Color(1.0, 0.5, 0.1, 0.9), width)
+					_GizmoManager:Projectile(Vector2(p.x, p.y))
 				end
 			end
 		end
@@ -62,18 +61,12 @@ script CombatGizmo extends Component
 				if elapsed >= a.life then
 					table.remove(atks, i)
 				else
-					local color
-					if a.parryable == false then
-						-- 패링 불가(redSmash) — 전 구간 빨강
-						color = Color(1.0, 0.2, 0.2, 0.9)
-					elseif (a.windup - elapsed) > 0.15 then
-						-- 텔레그래프 중 — 노랑
-						color = Color(1.0, 0.9, 0.2, 0.85)
-					else
-						-- 명중 임박/명중 — 빨강
-						color = Color(1.0, 0.2, 0.2, 0.9)
+					-- 색 = 풀 선택(Points 불변): 패링가능 + 텔레그래프 구간만 노랑, 그 외(패링불가 / 명중임박)는 빨강.
+					local isRed = true
+					if a.parryable ~= false and (a.windup - elapsed) > 0.15 then
+						isRed = false
 					end
-					_GizmoManager:Circle(a.center, a.radius, color, width)
+					_GizmoManager:EnemyAttack(a.center, a.radius, isRed)
 				end
 			end
 		end

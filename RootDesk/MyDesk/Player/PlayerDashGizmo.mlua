@@ -1,9 +1,9 @@
 @Component
 script PlayerDashGizmo extends Component
 
-	-- 대시 디버그 기즈모 '소스'(MR-I; MR-D 정리 대상). 홀더 관리/렌더는 중앙 _GizmoManager에 위임 — 여기서는 기하 계산 + 매니저 호출만.
-	-- (1) DashBlock 박스: 박스당 닫힌 폴리라인(:PolyBox). (2) 최대 사거리 원(:Circle). (3) 대시 레이(:Line) + 원점/도착 점(:Dot).
-	-- ClientOnly·LocalPlayer 전용. 게이트 = _GameConstants.DrawGizmo. 미사용 분기에서 명시적 숨김 불필요(매니저가 프레임 시작에 자동 클리어).
+	-- 대시 디버그 기즈모 '소스'(MR-I; MR-D 정리 대상). 홀더 관리/렌더는 중앙 _GizmoManager(retained-mode)에 위임 — 여기서는 기하 계산 + 의미 메서드 호출만.
+	-- (1) DashBlock 박스(:DashBlock). (2) 최대 사거리 원(:DashRange) + 중심 마커 원(:DashMarker). (3) 대시 레이(:DashRay) + 원점/도착 점(:Dot).
+	-- ClientOnly·LocalPlayer 전용. 게이트 = _GameConstants.DrawGizmo. 미사용 분기에서 명시적 숨김 불필요(매니저가 프레임 시작에 전체 숨김).
 
 	@HideFromInspector property any dash = nil
 	@HideFromInspector property string blockCacheMap = ""
@@ -54,19 +54,11 @@ script PlayerDashGizmo extends Component
 	end
 
 	@ExecSpace("ClientOnly")
-	method any Corner(table b, number lx, number ly, number ca, number sa)
-		-- 박스 로컬 코너 (lx,ly)를 박스 각도(ca,sa)로 회전해 월드점 {x,y} 반환.
-		return { x = b.cx + (lx * ca - ly * sa), y = b.cy + (lx * sa + ly * ca) }
-	end
-
-	@ExecSpace("ClientOnly")
 	method void DrawBlocks()
-		-- DashBlock 박스를 박스당 닫힌 4점 폴리라인(:PolyBox)으로. 그릴 수 있는 최대(DashGizmoMaxBlocks) 초과 시 경고 후 절단.
+		-- DashBlock 박스를 박스당 매니저 슬롯(:DashBlock, 회전·크기는 Transform)으로. 그릴 수 있는 최대(DashGizmoMaxBlocks) 초과 시 경고 후 절단.
 		local blocks = self:BlockRegions()
 		if blocks == nil then return end
 		local maxB = _GameConstants.DashGizmoMaxBlocks
-		local edgeColor = Color(1.0, 0.25, 0.2, 0.95)
-		local width = _GameConstants.DashGizmoLineWidth
 		local n = #blocks
 		if n > maxB then
 			log_warning("[PlayerDashGizmo] DashBlock " .. tostring(n) .. " > clamp " .. tostring(maxB) .. " — 일부만 표시")
@@ -74,16 +66,7 @@ script PlayerDashGizmo extends Component
 		end
 		for i = 1, n do
 			local b = blocks[i]
-			local ca = math.cos(b.ang)
-			local sa = math.sin(b.ang)
-			-- 좌상→우상→우하→좌하; loop=true 라 마지막→첫 자동 연결.
-			local corners = {
-				self:Corner(b, -b.hw,  b.hh, ca, sa),
-				self:Corner(b,  b.hw,  b.hh, ca, sa),
-				self:Corner(b,  b.hw, -b.hh, ca, sa),
-				self:Corner(b, -b.hw, -b.hh, ca, sa),
-			}
-			_GizmoManager:PolyBox(corners, edgeColor, width, true)
+			_GizmoManager:DashBlock(b.cx, b.cy, b.hw, b.hh, b.ang)
 		end
 	end
 
@@ -107,18 +90,14 @@ script PlayerDashGizmo extends Component
 		-- (1) DashBlock 박스 외곽선
 		self:DrawBlocks()
 
-		-- (2) 최대 사거리 원
-		_GizmoManager:Circle(center, _GameConstants.DashDistance, Color(0.3, 0.8, 1.0, 0.95), _GameConstants.DashGizmoLineWidth)
-
-		-- (2b) 플레이어 중심 마커 원(반지름 1, 밝은 노랑): 사거리 원은 반지름 5라 가장자리에만 보임 → 작은 원으로 플레이어 바로 곁에서 따라옴이 보이게.
-		_GizmoManager:Circle(center, 1.0, Color(1.0, 0.9, 0.2, 1.0), _GameConstants.DashGizmoRayWidth)
+		-- (2) 최대 사거리 원 + (2b) 플레이어 중심 마커 원(반지름1) — 둘 다 플레이어 중앙 추종(매니저가 Transform으로 배치).
+		_GizmoManager:DashRange(center)
+		_GizmoManager:DashMarker(center)
 
 		-- (3) 레이 + 원점/도착 점
-		local rayColor = Color(0.2, 1.0, 0.3, 0.9)
 		local oColor = Color(0.2, 0.8, 1.0, 1.0)
 		local eColor = Color(1.0, 0.9, 0.2, 1.0)
 		local dotScale = _GameConstants.DashGizmoDotScale
-		local rayWidth = _GameConstants.DashGizmoRayWidth
 		if dash.IsDashing then
 			self.shownUntil = _WallClock:Now() + _GameConstants.DashGizmoHold
 		end
@@ -129,7 +108,7 @@ script PlayerDashGizmo extends Component
 			local L = dash:ComputeDashLength(center, dir, cursor)
 			local ex = foot.x + dir.x * L
 			local ey = foot.y + dir.y * L
-			_GizmoManager:Line(Vector2(foot.x, foot.y), Vector2(ex, ey), rayColor, rayWidth)
+			_GizmoManager:DashRay(Vector2(foot.x, foot.y), Vector2(ex, ey))
 			_GizmoManager:Dot(Vector2(foot.x, foot.y), oColor, dotScale)
 			_GizmoManager:Dot(Vector2(ex, ey), eColor, dotScale)
 		elseif _WallClock:Now() < self.shownUntil and dash.dashStartPos ~= nil and dash.dashDir ~= nil then
@@ -138,7 +117,7 @@ script PlayerDashGizmo extends Component
 			local sy = dash.dashStartPos.y
 			local ex = sx + dash.dashDir.x * dash.dashLen
 			local ey = sy + dash.dashDir.y * dash.dashLen
-			_GizmoManager:Line(Vector2(sx, sy), Vector2(ex, ey), rayColor, rayWidth)
+			_GizmoManager:DashRay(Vector2(sx, sy), Vector2(ex, ey))
 			_GizmoManager:Dot(Vector2(sx, sy), oColor, dotScale)
 			_GizmoManager:Dot(Vector2(ex, ey), eColor, dotScale)
 		end

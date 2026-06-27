@@ -12,7 +12,7 @@ touches:
 depends_on: []
 branch: ""
 created: 2026-06-20
-updated: 2026-06-24
+updated: 2026-06-28
 ---
 
 # 대시 방-영역 클램프 (RoomRegion 논리 충돌 + 마커 authoring)
@@ -185,6 +185,17 @@ updated: 2026-06-24
 - `PlayerDash.EndDash`: 발판 스냅 + 블록 스냅 중 더 높은 표면으로(max). MapleTile 한정.
 - **실측 검증(play map02, slab top −0.64)**: 하향대시 clamp noStep=0.000→withStep(0.5)=0.833 / 블록스냅 얕음(−0.89→−0.64)·깊음(−1.5→불변)·발판스냅 4케이스 전부 정확. 빌드·diagnose 0에러.
 
+## 기즈모 retained-mode 재작성 — "안 따라옴" 버그 해결 (2026-06-28, @dust9826)
+이전 세션에서 기즈모를 스프라이트-빔 → 중앙 `GizmoManager` + `LineRendererComponent`로 옮겼으나 **정상 플레이 중 라인이 플레이어를 시각적으로 안 따라오는** 버그가 미해결이었음. 이번 세션에 근본원인 규명 + 해결.
+- **근본원인(실측 확정):** 기즈모 홀더는 서버 스폰이라 `LineRendererComponent.Points`(`@Sync SyncList<LinePoint>`)가 서버 권위. 클라가 매 프레임 Points를 in-place 변경(Clear/Add)해도 프로퍼티 값만 갱신되고 **시각 메시는 리빌드 안 됨**(서버→클라 sync delta 때만). 점(SpriteRenderer)이 멀쩡했던 건 Transform 기반이라 무관했던 것.
+- **추가 실측:** Points는 홀더 **Transform 상대좌표**로 렌더(WorldPosition/WorldZRotation/Scale 모두 적용) — 기존 "월드절대" 인식은 오관측. **메시 빌드 트리거 = 'Points 변경 후 Enable=true로 1프레임 렌더'**(이후 Enable 토글은 메시 보존).
+- **해결:** `GizmoManager`를 **retained-mode**로 재작성. 27홀더 flat 풀에 슬롯별 정적 Points를 **1회 bake**(원=실반지름 N분할/선=단위선분/박스=단위정사각, 색·폭 baked), 매 프레임 **Transform만** 갱신. 인덱스: 0 range·1 marker·2 ray·3~5 block·6 flash·7~14 proj·15~20 atkY·21~26 atkR. 적공격 색변은 노랑/빨강 2풀 커서. **핵심: bake한 프레임만 HideAll을 건너뛰어** 갓 bake한 홀더가 enabled로 1프레임 렌더돼 메시 빌드(안 그러면 같은 프레임 HideAll이 꺼 invisible). 소스(`PlayerDashGizmo`/`CombatGizmo`)는 즉시모드 `Circle/Line/PolyBox` → 의미 메서드 `DashRange/DashMarker/DashRay/DashBlock/AttackFlash/Projectile/EnemyAttack`로 교체.
+- **touched:** `Player/GizmoManager.mlua`(재작성), `Player/PlayerDashGizmo.mlua`, `Player/CombatGizmo.mlua`, `Core/GameConstants.mlua`(GizmoLinePoolSize 24→27).
+- **실측 PASS(play map02):** 빌드 0에러, 런타임 LEA-/Exception/nil/LWA-3019 전부 0. 플레이어 x=0→2.83 이동 후 range/marker 홀더 pos=(2.83, y+0.5) 정확 추종, 스크린샷에 사거리원·마커원·대시레이(초록)·블록박스(빨강) 전부 렌더+추종 확인. 상세는 메모리 [[linerenderer-gizmo]].
+- 비고: LWA-3009(Default 셰이더 폴백) 홀더당 1회 = 27개 경고, 무해(기본셰이더 폴백). MR-D 정리 시 `GameConstants.DrawGizmo=false` 또는 기즈모 일체 제거.
+
 ## Verify
 - Maker `play` → 대시를 방 경계·바닥 방향으로 쏴서 클램프 정상 + 방 밖 이탈 없음 → `logs` 에러 0. 미authoring 맵 폴백 확인.
-- (완료) 기하/열거/폴백 로직은 execute_script 단위검증으로 통과 + 실제 배치 마커로 클램프 확인. **잔여: 멈춤 위치/마진 체감 튜닝(다음 세션) + MR-A 다맵 마커 배치.**
+- (완료) 기하/열거/폴백 로직은 execute_script 단위검증으로 통과 + 실제 배치 마커로 클램프 확인.
+- (완료, 2026-06-28) 디버그 기즈모 retained-mode 재작성 + 추종 실측 PASS.
+- **잔여: 멈춤 위치/마진 체감 튜닝(기즈모로 시각화 가능해짐) + item2(도착 겹침 보정/미리보기) + MR-A 다맵 마커 배치.**

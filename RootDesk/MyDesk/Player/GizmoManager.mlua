@@ -1,97 +1,91 @@
 @Logic
 script GizmoManager extends Logic
 
-	-- 중앙 즉시모드(immediate-mode) 기즈모 매니저. @Logic OnUpdate가 모든 @Component.OnUpdate보다 먼저 실행되는 보장을 이용해
-	-- 프레임 시작에 '지난 프레임 사용분만' 숨기고(usage-bounded) 커서를 0으로 리셋한다.
-	-- 그 뒤 같은 프레임에 소스(@Component PlayerDashGizmo/CombatGizmo)가 :Circle/:Line/:PolyBox/:Dot 호출 → 풀에서 다음 홀더 할당(커서++).
-	-- ClientOnly·로컬플레이어 전용.
+	-- 중앙 retained-mode 기즈모 매니저. 디버그 시각화(대시 + 전투) 일괄 on/off. ClientOnly·로컬플레이어 전용.
 	--
-	-- ★ 홀더는 '맵 자식'으로 스폰한다(실측: LineRenderer가 플레이어 자식이면 렌더 안 됨 — 아바타 렌더 계층 간섭. 맵 자식이면 정상).
-	--   LineRenderer는 런타임 AddComponent 불가 → dashgizmoline(.model)을 스폰. 맵 전환마다 풀이 필요하므로,
-	--   매니저가 현재 맵에 풀이 없으면 서버 RPC(RequestEnsurePool)로 그 맵에 1회 스폰(맵별 idempotent). 클라는 맵 자식에서 이름으로 조회.
-	-- 좌표: LineRenderer Points는 월드좌표 공간으로 렌더(실측) → 월드좌표 그대로 투입. 점 스프라이트는 WorldPosition 직접.
-	-- SortingLayer "Effect"+큰 OrderInLayer로 지형 위에 그림(모델 기본 "Default"/60은 지형에 가려짐 — 실측).
-	-- MaterialId는 모델에 주입됨(빈 머티리얼이면 라인 렌더 안 됨 — 실측). 런타임 미변경.
+	-- ★ 설계 근거(2026-06-28 실측 확정): 홀더는 '맵 자식'으로 서버 스폰되고 LineRendererComponent.Points는 @Sync(서버 권위)다.
+	--   클라가 Points를 매 프레임 in-place 변경(Clear/Add)하면 프로퍼티 값은 갱신되나 **시각 메시 리빌드가 안 됨**(서버→클라
+	--   sync delta 때만 리빌드). 반면 **홀더 Transform(WorldPosition/WorldZRotation/Scale) 변경은 클라에서 즉시 시각 반영**됨
+	--   (점 SpriteRenderer가 잘 따라온 것과 동일 regime). 또 Points는 홀더 Transform '상대좌표'로 렌더된다(월드절대 아님).
+	--   → 따라서: 각 홀더의 Points를 **1회만 정적 bake**(단위/실반지름 원·단위선분·단위정사각, 색·폭 baked)하고,
+	--     매 프레임은 **Transform만** 바꿔 배치한다. Points는 bake 후 절대 재변경하지 않는다.
+	--
+	-- 고정 슬롯 레이아웃(인덱스→역할; 총 GizmoLinePoolSize=27):
+	--   0 사거리원(cyan, r=DashDistance)         1 마커원(yellow, r=1)          2 대시레이(green, 단위선분)
+	--   3~5 블록박스(red, 단위정사각)            6 공격플래시원(cyan, r=RadiusAttack)
+	--   7~14 투사체원(orange, r=RadiusProjectile, ×8)
+	--   15~20 적공격원 노랑(unit, ×6)            21~26 적공격원 빨강(unit, ×6)
+	-- 단위 원/정사각은 매 프레임 Scale로 반지름/크기 적용(폭이 Scale 따라 변할 수 있음 — transient라 허용). 실반지름 bake 원은 Scale=1.
+	--
+	-- LineRenderer 렌더 규칙(실측): 맵 자식이라야 렌더(플레이어 자식이면 안 보임) / MaterialId는 모델 주입(빈값이면 안 그려짐;
+	--   Default 셰이더 LWA-3009 경고는 기본셰이더 폴백이라 무해) / SortingLayer "Effect"+큰 OrderInLayer로 지형 위.
 
-	@HideFromInspector property any lineHolders = nil      -- slot(idx+1) -> 라인 홀더 엔티티 캐시
-	@HideFromInspector property any dotHolders = nil       -- slot(idx+1) -> 점 홀더 엔티티 캐시
+	@HideFromInspector property any holders = nil          -- slot(idx+1) -> 라인 홀더 엔티티 캐시
+	@HideFromInspector property any dotHolders = nil        -- slot(idx+1) -> 점 홀더 엔티티 캐시
 	@HideFromInspector property any boundMap = nil          -- 현재 바인딩된 맵(홀더 부모)
-	@HideFromInspector property string holdersMapName = ""  -- 캐시가 가리키는 맵 이름(맵 바뀌면 캐시 리셋)
+	@HideFromInspector property string holdersMapName = ""  -- 캐시가 가리키는 맵 이름(맵 바뀌면 캐시·bake 리셋)
 	@HideFromInspector property string requestedMapName = "" -- 풀 스폰을 서버에 요청한 맵 이름(중복 요청 방지)
-	@HideFromInspector property integer lineCursor = 0
-	@HideFromInspector property integer dotCursor = 0
-	@HideFromInspector property integer linePoolSize = 0
+	@HideFromInspector property string bakedMapName = ""    -- Points bake 완료된 맵 이름(새 맵 홀더면 재bake)
+	@HideFromInspector property integer poolSize = 0
 	@HideFromInspector property integer dotPoolSize = 0
 	@HideFromInspector property number gizmoZ = 0.0
-	@HideFromInspector property boolean lineOverflowed = false
-	@HideFromInspector property boolean dotOverflowed = false
+
+	-- 가변 개수 풀의 프레임 커서(매 프레임 0 리셋).
+	@HideFromInspector property integer blockCursor = 0
+	@HideFromInspector property integer projCursor = 0
+	@HideFromInspector property integer atkYCursor = 0
+	@HideFromInspector property integer atkRCursor = 0
+	@HideFromInspector property integer dotCursor = 0
+	@HideFromInspector property boolean overflowed = false
+
+	-- 슬롯 레이아웃 상수(인덱스).
+	@HideFromInspector property integer IdxRange = 0
+	@HideFromInspector property integer IdxMarker = 1
+	@HideFromInspector property integer IdxRay = 2
+	@HideFromInspector property integer BlockStart = 3
+	@HideFromInspector property integer BlockCount = 3
+	@HideFromInspector property integer IdxFlash = 6
+	@HideFromInspector property integer ProjStart = 7
+	@HideFromInspector property integer ProjCount = 8
+	@HideFromInspector property integer AtkYStart = 15
+	@HideFromInspector property integer AtkRStart = 21
+	@HideFromInspector property integer AtkCount = 6
 
 	@ExecSpace("ClientOnly")
 	method void OnBeginPlay()
 		-- 클라 1회 초기화.
-		self.lineHolders = {}
+		self.holders = {}
 		self.dotHolders = {}
-		self.lineCursor = 0
-		self.dotCursor = 0
-		self.linePoolSize = _GameConstants.GizmoLinePoolSize
+		self.poolSize = _GameConstants.GizmoLinePoolSize
 		self.dotPoolSize = _GameConstants.GizmoDotPoolSize
 		self.gizmoZ = 0.0
 		self.boundMap = nil
 		self.holdersMapName = ""
 		self.requestedMapName = ""
-		log("[GizmoManager] OnBeginPlay (linePool=" .. tostring(self.linePoolSize) .. ", dotPool=" .. tostring(self.dotPoolSize) .. ")")
-	end
-
-	@ExecSpace("ClientOnly")
-	method void HideUsed()
-		-- 지난 프레임 할당분(커서 값)만 숨김. 캐시 직접 사용.
-		local n = self.lineCursor
-		local i = 0
-		while i < n do
-			local e = self.lineHolders[i + 1]
-			if e ~= nil and isvalid(e) then
-				local lrc = e.LineRendererComponent
-				if lrc ~= nil and isvalid(lrc) then
-					lrc.Points:Clear()
-					lrc.Enable = false
-				end
-			end
-			i = i + 1
-		end
-		local m = self.dotCursor
-		i = 0
-		while i < m do
-			local e = self.dotHolders[i + 1]
-			if e ~= nil and isvalid(e) then
-				local sr = e.SpriteRendererComponent
-				if isvalid(sr) then sr.Enable = false end
-			end
-			i = i + 1
-		end
+		self.bakedMapName = ""
+		log("[GizmoManager] OnBeginPlay (retained linePool=" .. tostring(self.poolSize) .. ", dotPool=" .. tostring(self.dotPoolSize) .. ")")
 	end
 
 	@ExecSpace("ClientOnly")
 	method void OnUpdate(number delta)
-		-- 프레임 시작: 현재 맵 바인딩 + 풀 보장 → 지난 프레임 사용분 숨김 → 커서 0. DrawGizmo off면 정리 후 종료.
+		-- 프레임 시작: 맵 바인딩 + 풀 보장 + 1회 bake → 전체 숨김 → 커서 리셋. 같은 프레임에 소스가 Place* 호출(Logic이 먼저라 보장).
 		local player = _UserService.LocalPlayer
 		if player == nil or isvalid(player) == false then return end
 		local map = player.CurrentMap
 		if map == nil or isvalid(map) == false then return end
 
-		-- 맵 변경 감지 → 홀더 캐시 리셋(새 맵의 홀더로 다시 조회).
+		-- 맵 변경 감지 → 홀더 캐시·bake 리셋(새 맵의 홀더로 다시 조회/재bake).
 		if self.holdersMapName ~= map.Name then
 			self.boundMap = map
 			self.holdersMapName = map.Name
-			self.lineHolders = {}
+			self.holders = {}
 			self.dotHolders = {}
+			self.bakedMapName = ""
 		end
-		if self.lineHolders == nil then self.lineHolders = {} end
+		if self.holders == nil then self.holders = {} end
 		if self.dotHolders == nil then self.dotHolders = {} end
 
 		if _GameConstants.DrawGizmo == false then
-			self:HideUsed()
-			self.lineCursor = 0
-			self.dotCursor = 0
 			return
 		end
 
@@ -99,21 +93,42 @@ script GizmoManager extends Logic
 		if self.requestedMapName ~= map.Name then
 			local first = map:GetChildByName(_GameConstants.GizmoLinePoolPrefix .. "0", false)
 			if first == nil or isvalid(first) == false then
-				self.requestedMapName = map.Name
 				self:RequestEnsurePool(map)
-			else
-				self.requestedMapName = map.Name
 			end
+			self.requestedMapName = map.Name
 		end
 
 		local tf = player.TransformComponent
 		if isvalid(tf) then self.gizmoZ = tf.WorldPosition.z end
 
-		self:HideUsed()
-		self.lineCursor = 0
+		-- 1회 bake: 마지막 슬롯 홀더까지 준비됐고 이 맵에서 아직 bake 안 했으면 전 슬롯 Points 정적 셋업.
+		-- ★ bake한 프레임은 HideAll을 건너뛴다 — LineRenderer 메시는 'Points 변경 후 enabled 상태로 1프레임 렌더'될 때만
+		--   빌드됨(실측). bake가 Enable=true로 끝나도 같은 프레임 HideAll이 끄면 렌더 전 disabled가 돼 메시가 영영 안 만들어진다.
+		--   이 프레임만 enabled로 흘려보내 메시를 빌드시키고(홀더 대부분 원점에 1프레임 깜빡), 다음 프레임부터 정상 HideAll/place
+		--   (토글은 빌드된 메시를 보존 — 실측). 커서만 리셋하고 early-return.
+		if self.bakedMapName ~= map.Name then
+			local last = self:Holder(self.poolSize - 1)
+			if last ~= nil and isvalid(last) then
+				self:BakeAll()
+				self.bakedMapName = map.Name
+				self.blockCursor = 0
+				self.projCursor = 0
+				self.atkYCursor = 0
+				self.atkRCursor = 0
+				self.dotCursor = 0
+				self.overflowed = false
+				return
+			end
+		end
+
+		-- 전체 숨김(이번 프레임 그릴 것만 소스가 다시 켬) + 커서 리셋.
+		self:HideAll()
+		self.blockCursor = 0
+		self.projCursor = 0
+		self.atkYCursor = 0
+		self.atkRCursor = 0
 		self.dotCursor = 0
-		self.lineOverflowed = false
-		self.dotOverflowed = false
+		self.overflowed = false
 	end
 
 	@ExecSpace("Server")
@@ -140,15 +155,15 @@ script GizmoManager extends Logic
 	end
 
 	@ExecSpace("ClientOnly")
-	method any LineHolder(integer idx)
+	method any Holder(integer idx)
 		-- 인덱스 라인 홀더 조회(맵 자식, 캐시 + isvalid 재조회). 범위 밖이면 nil.
-		if idx < 0 or idx >= self.linePoolSize then return nil end
+		if idx < 0 or idx >= self.poolSize then return nil end
 		local slot = idx + 1
-		local e = self.lineHolders[slot]
+		local e = self.holders[slot]
 		if e ~= nil and isvalid(e) then return e end
 		if self.boundMap == nil or isvalid(self.boundMap) == false then return nil end
 		e = self.boundMap:GetChildByName(_GameConstants.GizmoLinePoolPrefix .. tostring(idx), false)
-		self.lineHolders[slot] = e
+		self.holders[slot] = e
 		return e
 	end
 
@@ -165,97 +180,261 @@ script GizmoManager extends Logic
 		return e
 	end
 
+	-- ========== Bake (1회) ==========
+
 	@ExecSpace("ClientOnly")
-	method any AllocLine()
-		-- 라인 홀더 1개 할당(커서++). 풀 초과 시 1회 경고 후 nil. 홀더 미준비(스폰 대기)면 nil(이번 프레임 스킵).
-		local idx = self.lineCursor
-		if idx >= self.linePoolSize then
-			if self.lineOverflowed == false then
-				self.lineOverflowed = true
-				log_warning("[GizmoManager] line pool overflow (size " .. tostring(self.linePoolSize) .. ") — 초과 기즈모 무시")
-			end
-			return nil
+	method void BakeAll()
+		-- 전 슬롯 Points 정적 셋업. 색·폭·모양 baked. 이후 절대 재변경 금지(Transform만 사용).
+		local lw = _GameConstants.DashGizmoLineWidth
+		local rw = _GameConstants.DashGizmoRayWidth
+		local cw = _GameConstants.GizmoCombatWidth
+		-- 대시
+		self:BakeCircle(self.IdxRange, _GameConstants.DashDistance, Color(0.3, 0.8, 1.0, 0.95), lw)
+		self:BakeCircle(self.IdxMarker, 1.0, Color(1.0, 0.9, 0.2, 1.0), rw)
+		self:BakeSegment(self.IdxRay, Color(0.2, 1.0, 0.3, 0.9), rw)
+		local bi = 0
+		while bi < self.BlockCount do
+			self:BakeSquare(self.BlockStart + bi, Color(1.0, 0.25, 0.2, 0.95), lw)
+			bi = bi + 1
 		end
-		local e = self:LineHolder(idx)
-		self.lineCursor = idx + 1
-		return e
+		-- 전투
+		self:BakeCircle(self.IdxFlash, _GameConstants.RadiusAttack, Color(0.3, 0.8, 1.0, 0.85), cw)
+		local pi = 0
+		while pi < self.ProjCount do
+			self:BakeCircle(self.ProjStart + pi, _GameConstants.RadiusProjectile, Color(1.0, 0.5, 0.1, 0.9), cw)
+			pi = pi + 1
+		end
+		local ai = 0
+		while ai < self.AtkCount do
+			self:BakeCircle(self.AtkYStart + ai, 1.0, Color(1.0, 0.9, 0.2, 0.85), cw)
+			self:BakeCircle(self.AtkRStart + ai, 1.0, Color(1.0, 0.2, 0.2, 0.9), cw)
+			ai = ai + 1
+		end
+		log("[GizmoManager] baked " .. tostring(self.poolSize) .. " line holders (retained static Points)")
 	end
 
 	@ExecSpace("ClientOnly")
-	method any AllocDot()
-		-- 점 홀더 1개 할당(커서++). 풀 초과 시 1회 경고 후 nil.
-		local idx = self.dotCursor
-		if idx >= self.dotPoolSize then
-			if self.dotOverflowed == false then
-				self.dotOverflowed = true
-				log_warning("[GizmoManager] dot pool overflow (size " .. tostring(self.dotPoolSize) .. ") — 초과 점 무시")
-			end
-			return nil
-		end
-		local e = self:DotHolder(idx)
-		self.dotCursor = idx + 1
-		return e
+	method void PrepHolder(any lrc)
+		-- bake 공통: 레이어/순서 설정 + Points 비움. (Enable은 각 bake helper가 Points 추가 후 true로 — 메시는
+		--  "Enable=true 상태에서 Points 추가 시" 빌드됨(실측 T2). 빌드 후 Enable 토글은 메시 보존(실측 T3).)
+		lrc.SortingLayer = "Effect"
+		lrc.OrderInLayer = 32000
+		lrc.Points:Clear()
 	end
 
 	@ExecSpace("ClientOnly")
-	method void ApplyLine(any e, table pts, boolean loop, Color color, number width)
-		-- 월드좌표 pts 그대로 투입(LineRenderer Points=월드공간, 실측). 홀더는 맵 자식이라 (0,0)에 고정.
-		-- SortingLayer "Effect"로 지형 위. MaterialId 미변경(모델 주입).
+	method void BakeCircle(integer idx, number radius, Color color, number width)
+		-- 반지름 radius 닫힌 근사 폴리라인. (실반지름 bake → Place 시 Scale=1, 단위 bake는 radius=1로 호출해 Scale로 크기).
+		local e = self:Holder(idx)
 		if e == nil or isvalid(e) == false then return end
 		local lrc = e.LineRendererComponent
 		if lrc == nil or isvalid(lrc) == false then return end
-		lrc.SortingLayer = "Effect"
-		lrc.OrderInLayer = 32000
-		lrc.Loop = loop
-		lrc.Points:Clear()
-		if pts ~= nil then
-			for i = 1, #pts do
-				local p = pts[i]
-				if p ~= nil then
-					lrc.Points:Add(LinePoint(Vector2(p.x, p.y), color, width))
-				end
+		self:PrepHolder(lrc)
+		lrc.Loop = true
+		local segs = _GameConstants.GizmoCircleSegments
+		if segs < 8 then segs = 8 end
+		local i = 0
+		while i < segs do
+			local ang = (i / segs) * math.pi * 2.0
+			lrc.Points:Add(LinePoint(Vector2(math.cos(ang) * radius, math.sin(ang) * radius), color, width))
+			i = i + 1
+		end
+		lrc.Enable = true   -- Points 추가 후 enable → 메시 빌드(직후 HideAll이 끄지만 메시 보존)
+	end
+
+	@ExecSpace("ClientOnly")
+	method void BakeSegment(integer idx, Color color, number width)
+		-- 단위 선분 (0,0)-(1,0). Place 시 pos=A, rot=방향, Scale.x=길이.
+		local e = self:Holder(idx)
+		if e == nil or isvalid(e) == false then return end
+		local lrc = e.LineRendererComponent
+		if lrc == nil or isvalid(lrc) == false then return end
+		self:PrepHolder(lrc)
+		lrc.Loop = false
+		lrc.Points:Add(LinePoint(Vector2(0, 0), color, width))
+		lrc.Points:Add(LinePoint(Vector2(1, 0), color, width))
+		lrc.Enable = true   -- Points 추가 후 enable → 메시 빌드
+	end
+
+	@ExecSpace("ClientOnly")
+	method void BakeSquare(integer idx, Color color, number width)
+		-- 단위 정사각 (-0.5..0.5) 닫힌 루프. Place 시 pos=center, rot=각도, Scale=(w,h).
+		local e = self:Holder(idx)
+		if e == nil or isvalid(e) == false then return end
+		local lrc = e.LineRendererComponent
+		if lrc == nil or isvalid(lrc) == false then return end
+		self:PrepHolder(lrc)
+		lrc.Loop = true
+		lrc.Points:Add(LinePoint(Vector2(-0.5, 0.5), color, width))
+		lrc.Points:Add(LinePoint(Vector2(0.5, 0.5), color, width))
+		lrc.Points:Add(LinePoint(Vector2(0.5, -0.5), color, width))
+		lrc.Points:Add(LinePoint(Vector2(-0.5, -0.5), color, width))
+		lrc.Enable = true   -- Points 추가 후 enable → 메시 빌드
+	end
+
+	-- ========== Hide / Place (매 프레임 Transform만) ==========
+
+	@ExecSpace("ClientOnly")
+	method void HideAll()
+		-- 전 라인 + 점 홀더 숨김(Enable=false). Points·bake는 불변.
+		local i = 0
+		while i < self.poolSize do
+			local e = self:Holder(i)
+			if e ~= nil and isvalid(e) then
+				local lrc = e.LineRendererComponent
+				if lrc ~= nil and isvalid(lrc) then lrc.Enable = false end
 			end
+			i = i + 1
+		end
+		i = 0
+		while i < self.dotPoolSize do
+			local e = self:DotHolder(i)
+			if e ~= nil and isvalid(e) then
+				local sr = e.SpriteRendererComponent
+				if isvalid(sr) then sr.Enable = false end
+			end
+			i = i + 1
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void PlaceFixed(integer idx, number x, number y)
+		-- 실반지름 bake 원(사거리/마커/플래시/투사체): 위치만 이동(Scale=1, rot=0).
+		local e = self:Holder(idx)
+		if e == nil or isvalid(e) == false then return end
+		local lrc = e.LineRendererComponent
+		if lrc == nil or isvalid(lrc) == false then return end
+		local tf = e.TransformComponent
+		if isvalid(tf) then
+			tf.WorldPosition = Vector3(x, y, self.gizmoZ)
+			tf.Scale = Vector3(1, 1, 1)
+			tf.WorldZRotation = 0
 		end
 		lrc.Enable = true
 	end
 
 	@ExecSpace("ClientOnly")
-	method void Line(Vector2 a, Vector2 b, Color color, number width)
-		-- 즉시모드 선분: 2점 오픈 폴리라인.
-		local e = self:AllocLine()
-		if e == nil then return end
-		self:ApplyLine(e, { { x = a.x, y = a.y }, { x = b.x, y = b.y } }, false, color, width)
-	end
-
-	@ExecSpace("ClientOnly")
-	method void PolyBox(table corners, Color color, number width, boolean loop)
-		-- 즉시모드 폴리라인: corners 그대로(loop=true면 닫힌 박스).
-		local e = self:AllocLine()
-		if e == nil then return end
-		self:ApplyLine(e, corners, loop, color, width)
-	end
-
-	@ExecSpace("ClientOnly")
-	method void Circle(Vector2 center, number radius, Color color, number width)
-		-- 즉시모드 원 = GizmoCircleSegments 분할 닫힌 근사 폴리라인.
-		local e = self:AllocLine()
-		if e == nil then return end
-		local segs = _GameConstants.GizmoCircleSegments
-		if segs < 8 then segs = 8 end
-		local pts = {}
-		local i = 0
-		while i < segs do
-			local ang = (i / segs) * math.pi * 2.0
-			table.insert(pts, { x = center.x + math.cos(ang) * radius, y = center.y + math.sin(ang) * radius })
-			i = i + 1
+	method void PlaceUnitCircle(integer idx, number x, number y, number radius)
+		-- 단위원(적공격): Scale=(r,r)로 반지름 적용.
+		local e = self:Holder(idx)
+		if e == nil or isvalid(e) == false then return end
+		local lrc = e.LineRendererComponent
+		if lrc == nil or isvalid(lrc) == false then return end
+		local tf = e.TransformComponent
+		if isvalid(tf) then
+			tf.WorldPosition = Vector3(x, y, self.gizmoZ)
+			tf.Scale = Vector3(radius, radius, 1)
+			tf.WorldZRotation = 0
 		end
-		self:ApplyLine(e, pts, true, color, width)
+		lrc.Enable = true
+	end
+
+	-- ========== 공개 의미 메서드(소스가 호출) ==========
+
+	@ExecSpace("ClientOnly")
+	method void DashRange(Vector2 center)
+		-- 대시 최대 사거리 원(플레이어 중앙 추종).
+		self:PlaceFixed(self.IdxRange, center.x, center.y)
+	end
+
+	@ExecSpace("ClientOnly")
+	method void DashMarker(Vector2 center)
+		-- 플레이어 중심 마커 원(반지름1).
+		self:PlaceFixed(self.IdxMarker, center.x, center.y)
+	end
+
+	@ExecSpace("ClientOnly")
+	method void DashRay(Vector2 a, Vector2 b)
+		-- 대시 레이: 단위선분 홀더를 pos=a, rot=방향, Scale.x=길이로 배치.
+		local e = self:Holder(self.IdxRay)
+		if e == nil or isvalid(e) == false then return end
+		local lrc = e.LineRendererComponent
+		if lrc == nil or isvalid(lrc) == false then return end
+		local dx = b.x - a.x
+		local dy = b.y - a.y
+		local len = math.sqrt(dx * dx + dy * dy)
+		if len < 0.0001 then len = 0.0001 end
+		local tf = e.TransformComponent
+		if isvalid(tf) then
+			tf.WorldPosition = Vector3(a.x, a.y, self.gizmoZ)
+			tf.WorldZRotation = math.deg(math.atan(dy, dx))
+			tf.Scale = Vector3(len, 1, 1)
+		end
+		lrc.Enable = true
+	end
+
+	@ExecSpace("ClientOnly")
+	method void DashBlock(number cx, number cy, number hw, number hh, number angRad)
+		-- 대시 불가 블록 외곽선: 단위정사각 홀더(블록 커서)를 pos=center, rot=각도, Scale=(2hw,2hh)로.
+		if self.blockCursor >= self.BlockCount then
+			self:WarnOverflow("block")
+			return
+		end
+		local idx = self.BlockStart + self.blockCursor
+		self.blockCursor = self.blockCursor + 1
+		local e = self:Holder(idx)
+		if e == nil or isvalid(e) == false then return end
+		local lrc = e.LineRendererComponent
+		if lrc == nil or isvalid(lrc) == false then return end
+		local tf = e.TransformComponent
+		if isvalid(tf) then
+			tf.WorldPosition = Vector3(cx, cy, self.gizmoZ)
+			tf.WorldZRotation = math.deg(angRad)
+			tf.Scale = Vector3(hw * 2.0, hh * 2.0, 1)
+		end
+		lrc.Enable = true
+	end
+
+	@ExecSpace("ClientOnly")
+	method void AttackFlash(Vector2 center)
+		-- 플레이어 공격 플래시 원(반지름 RadiusAttack).
+		self:PlaceFixed(self.IdxFlash, center.x, center.y)
+	end
+
+	@ExecSpace("ClientOnly")
+	method void Projectile(Vector2 center)
+		-- 적 투사체 원(주황, 투사체 풀 커서).
+		if self.projCursor >= self.ProjCount then
+			self:WarnOverflow("proj")
+			return
+		end
+		local idx = self.ProjStart + self.projCursor
+		self.projCursor = self.projCursor + 1
+		self:PlaceFixed(idx, center.x, center.y)
+	end
+
+	@ExecSpace("ClientOnly")
+	method void EnemyAttack(Vector2 center, number radius, boolean isRed)
+		-- 적 근접/보스 공격 원. 색별 풀(노랑 텔레그래프 / 빨강 명중임박) — 색은 풀 선택으로(Points 불변).
+		if isRed then
+			if self.atkRCursor >= self.AtkCount then
+				self:WarnOverflow("atkR")
+				return
+			end
+			local idx = self.AtkRStart + self.atkRCursor
+			self.atkRCursor = self.atkRCursor + 1
+			self:PlaceUnitCircle(idx, center.x, center.y, radius)
+		else
+			if self.atkYCursor >= self.AtkCount then
+				self:WarnOverflow("atkY")
+				return
+			end
+			local idx = self.AtkYStart + self.atkYCursor
+			self.atkYCursor = self.atkYCursor + 1
+			self:PlaceUnitCircle(idx, center.x, center.y, radius)
+		end
 	end
 
 	@ExecSpace("ClientOnly")
 	method void Dot(Vector2 pos, Color color, number scale)
-		-- 즉시모드 점: 스프라이트 홀더(맵 자식)를 WorldPosition 직접 배치.
-		local e = self:AllocDot()
+		-- 점(원점/도착): 스프라이트 홀더(맵 자식)를 WorldPosition 직접 배치. (Transform 기반 — 정상 추종)
+		if self.dotCursor >= self.dotPoolSize then
+			self:WarnOverflow("dot")
+			return
+		end
+		local idx = self.dotCursor
+		self.dotCursor = self.dotCursor + 1
+		local e = self:DotHolder(idx)
 		if e == nil or isvalid(e) == false then return end
 		local sr = e.SpriteRendererComponent
 		if isvalid(sr) == false then return end
@@ -268,6 +447,15 @@ script GizmoManager extends Logic
 		sr.OrderInLayer = 32000
 		sr.Color = color
 		sr.Enable = true
+	end
+
+	@ExecSpace("ClientOnly")
+	method void WarnOverflow(string pool)
+		-- 풀 초과 1회 경고(프레임당 1회).
+		if self.overflowed == false then
+			self.overflowed = true
+			log_warning("[GizmoManager] gizmo pool overflow (" .. tostring(pool) .. ") — 초과 기즈모 무시")
+		end
 	end
 
 end
