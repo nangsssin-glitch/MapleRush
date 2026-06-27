@@ -2,9 +2,9 @@
 script CombatGizmo extends Component
 
 	-- 전투 디버그 기즈모 '소스'(@Component ClientOnly LocalPlayer). 매니저(retained-mode) 의미 메서드로 그림. 게이트 = _GameConstants.DrawGizmo.
-	-- (1) 플레이어 공격 플래시원(하늘색) — 형제 PlayerCombat.lastAttackTime 폴링(쿨/대시/아이템 게이트 통과한 공격만 기록됨).
+	-- (1) 플레이어 공격 플래시 박스(하늘색) — 형제 PlayerCombat.lastAttackTime/lastAttackFacingX 폴링(쿨/대시/아이템 게이트 통과한 공격만 기록됨).
 	-- (2) 적 투사체 원(주황) — map의 script.Projectile 열거, OwnerSide=="enemy" 필터(반사 시 'player' 동기→자동 제외). 브로드캐스트 불필요.
-	-- (3) 적 근접/보스 공격원(windup=노랑 / 명중임박·무패링=빨강) — 서버 브로드캐스트 수신분(_CombatPrimitives.clientEnemyAttacks).
+	-- (3) 적 근접/보스 공격 박스(windup=노랑 / 명중임박·무패링=빨강) — 서버 브로드캐스트 수신분(_CombatPrimitives.clientEnemyAttacks).
 
 	@HideFromInspector property any combat = nil
 
@@ -23,14 +23,19 @@ script CombatGizmo extends Component
 		local player = _UserService.LocalPlayer
 		if player == nil or isvalid(player) == false or self.Entity ~= player then return end
 
-		-- (1) 플레이어 공격 플래시원 (발 중심, 반지름 RadiusAttack, 짧은 시간)
+		-- (1) 플레이어 공격 플래시 박스 (커서 좌/우 전방 박스, 짧은 시간)
 		if self.combat == nil then self.combat = self.Entity:GetComponent("script.PlayerCombat") end
 		if self.combat ~= nil then
 			---@type PlayerCombat
 			local pc = self.combat
 			if _WallClock:IsExpired(pc.lastAttackTime, _GameConstants.GizmoAttackFlash) == false then
 				local pp = self.Entity.TransformComponent.WorldPosition
-				_GizmoManager:AttackFlash(Vector2(pp.x, pp.y))
+				-- 평타 박스: 마지막 평타의 커서 좌/우 방향으로 전방 오프셋 + 플레이어 중심 보정.
+				local facingX = pc.lastAttackFacingX
+				local f = _GameConstants.PlayerAttackBoxForward
+				local bcx = pp.x + facingX * f * 0.5
+				local bcy = pp.y + _GameConstants.PlayerCenterYOffset
+				_GizmoManager:AttackFlash(Vector2(bcx, bcy), f * 0.5, _GameConstants.PlayerAttackBoxHeight * 0.5)
 			end
 		end
 
@@ -66,7 +71,7 @@ script CombatGizmo extends Component
 					if a.parryable ~= false and (a.windup - elapsed) > 0.15 then
 						isRed = false
 					end
-					_GizmoManager:EnemyAttack(a.center, a.radius, isRed)
+					_GizmoManager:EnemyAttackBox(a.center, a.hw, a.hh, isRed)
 				end
 			end
 		end
