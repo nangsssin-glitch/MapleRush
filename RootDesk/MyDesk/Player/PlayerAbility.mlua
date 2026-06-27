@@ -31,6 +31,14 @@ script PlayerAbility extends Component
 
 	@ExecSpace("ClientOnly")
 	method void OnRouterAction(RouterActionEvent event)
+		-- [치트] 숫자키 7/8 → 능력 즉시 획득 (CheatMode 게이팅은 InputRouter emit 단계 + 서버 RPC에서 이중 가드).
+		if event.action == "debugGrantInvincible" then
+			self:DebugGrant("invincible")
+			return
+		elseif event.action == "debugGrantClear" then
+			self:DebugGrant("clearProjectiles")
+			return
+		end
 		-- ability 액션(휠클릭) → 사용 요청. 미보유/소진 시 무시 (UI 피드백은 Phase 8).
 		if event.action ~= "ability" then return end
 		if self.AbilityId == "" then
@@ -74,6 +82,15 @@ script PlayerAbility extends Component
 	method boolean IsAbilityInvincible()
 		-- 능력 무적 판정 (PlayerHit이 호출).
 		return _UtilLogic.ServerElapsedSeconds < self.abilityInvincibleUntil
+	end
+
+	@ExecSpace("Server")
+	method void DebugGrant(string abilityId)
+		-- [치트] 능력 즉시 장착 + 사용횟수 충전 (획득 플로우 전 테스트용; 숫자키 7/8). 서버 가드: CheatMode일 때만.
+		if _GameConstants.CheatMode == false then return end
+		self.AbilityId = abilityId
+		self.UsesLeft = _GameConstants.AbilityUsesNormal
+		log("[PlayerAbility] CHEAT grant: " .. abilityId .. " uses=" .. tostring(self.UsesLeft))
 	end
 
 	@ExecSpace("ServerOnly")

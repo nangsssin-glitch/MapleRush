@@ -42,6 +42,12 @@ script PlayerDash extends Component
 	-- 목적지 마커 엔티티(플레이어 자식) 캐시
 	@HideFromInspector property any markerCache = nil
 
+	-- 사거리 원 엔티티(플레이어 자식) 캐시
+	@HideFromInspector property any rangeCache = nil
+
+	-- 이번 대시가 SideView 맵인지 (이동 채널 분기 — 부드러움 위해 TryDash에서 1회 판정)
+	@HideFromInspector property boolean dashIsSideView = false
+
 	-- ========== 생명주기 / 입력 라우팅 ==========
 	@ExecSpace("ClientOnly")
 	method void OnBeginPlay()
@@ -90,6 +96,7 @@ script PlayerDash extends Component
 			preview.SpriteRendererComponent.Enable = false
 		end
 		self:UpdateMarker(false, 0, 0, 0)
+		self:UpdateRangeCircle(false, 0, 0, 0)
 		log("[PlayerDash] aim preview STOP")
 	end
 
@@ -131,19 +138,81 @@ script PlayerDash extends Component
 		sr.Enable = true
 	end
 
+	-- ========== 이동 채널 (맵뷰 무관 + SideView 부드러움) ==========
+	@ExecSpace("ClientOnly")
+	method boolean IsDashSideView()
+		-- 현재 맵이 SideView/RectTile인지 (RectTileMapComponent 유무).
+		local map = self.Entity.CurrentMap
+		if isvalid(map) == false then return false end
+		return isvalid(map:GetFirstChildComponentByTypeName("MOD.Core.RectTileMapComponent", true))
+	end
+
+	@ExecSpace("ClientOnly")
+	method void DashMoveTo(Vector2 p)
+		-- 대시 이동. SideView=Sideviewbody 직접 SetWorldPosition + MoveVelocity 0(프레임간 중력 누적 제거→지터 방지),
+		-- MapleTile/기타=MovementComponent:SetWorldPosition(기존, 이미 부드러움).
+		if self.dashIsSideView then
+			local svb = self.Entity.SideviewbodyComponent
+			if isvalid(svb) then
+				svb:SetWorldPosition(p)
+				svb.MoveVelocity = Vector2(0, 0)
+				return
+			end
+		end
+		self.Entity.MovementComponent:SetWorldPosition(p)
+	end
+
+	-- ========== 최대 사거리 원 ==========
+	@ExecSpace("ClientOnly")
+	method any GetRange()
+		-- 사거리 원 엔티티(플레이어 자식) 조회(캐시).
+		if self.rangeCache ~= nil and isvalid(self.rangeCache) then return self.rangeCache end
+		self.rangeCache = self.Entity:GetChildByName(_GameConstants.DashRangeName, false)
+		return self.rangeCache
+	end
+
+	@ExecSpace("ClientOnly")
+	method void UpdateRangeCircle(boolean show, number x, number y, number z)
+		-- 최대 사거리 원 표시/숨김. 플레이어 중앙에 배치, 지름 = 2×DashDistance.
+		local circle = self:GetRange()
+		if circle == nil or isvalid(circle) == false then return end
+		local sr = circle.SpriteRendererComponent
+		if isvalid(sr) == false then return end
+		if show == false then
+			sr.Enable = false
+			return
+		end
+		local ctf = circle.TransformComponent
+		ctf.WorldPosition = Vector3(x, y, z)
+		local s = (_GameConstants.DashDistance * 2.0) / _GameConstants.DashRangeSpriteWidth
+		ctf.Scale = Vector3(s, s, 1)
+		sr.Enable = true
+	end
+
 	@ExecSpace("ClientOnly")
 	method number ComputeDashLength(Vector2 p2, Vector2 dir, Vector2 target)
-		-- 대시 거리 = min(커서까지 거리, 최대 사거리). 경로상 벽(수직 풋홀드)이 더 가까우면 거기서 멈춤.
+		-- 대시 거리 = min(커서까지 거리, 최대 사거리). 현재 방(RoomRegion) 경계가 더 가까우면 거기서 멈춤.
+		-- 방향/사거리는 중앙(p2) 기준이나, 방 클램프는 실제 이동 라인인 발 기준으로 측정(클리어런스↔이동 라인 일치).
 		local dx = target.x - p2.x
 		local dy = target.y - p2.y
 		local L = math.sqrt(dx * dx + dy * dy)
 		if L > _GameConstants.DashDistance then L = _GameConstants.DashDistance end
-		local wallDist = _CombatPrimitives:RaycastWallDistance(self.Entity.CurrentMap, p2, dir, L)
-		if wallDist < L then
-			L = wallDist - _GameConstants.DashWallMargin
-			if L < 0 then L = 0 end
-		end
+		local pos = self.Entity.TransformComponent.WorldPosition
+		local foot = Vector2(pos.x, pos.y)
+		-- 접지 시 스텝오버: 블록 판정 ray 원점을 올려 낮은 장애물은 넘어가게 함(높은 벽은 그대로 막힘).
+		local stepUp = 0.0
+		local rb = self.Entity.RigidbodyComponent
+		if isvalid(rb) and rb:IsOnGround() then stepUp = _GameConstants.DashStepOverHeight end
+		-- 측면(벽) 마진은 ClampRayToCurrentRoom 내부(BlockClampEntry)에서 반영됨 — 여기선 추가 차감 없음(이중 적용 방지).
+		local roomDist = _CombatPrimitives:ClampRayToCurrentRoom(self.Entity.CurrentMap, foot, foot, dir, L, stepUp)
+		if roomDist < L then L = roomDist end
 		return L
+	end
+
+	@ExecSpace("ClientOnly")
+	method Vector2 ComputeAimDir(Vector2 center, Vector2 target)
+		-- 대시 방향 = 커서 방향(원시). 접지 하향 조준 보정(ApplyFloorAimAssist)은 일단 제거 — 바닥/foothold 기준 클램프 체감 확인용(MR-I). 프리뷰·실행 공통.
+		return _CombatPrimitives:DirectionTo(center, target)
 	end
 
 	@ExecSpace("ClientOnly")
@@ -161,21 +230,24 @@ script PlayerDash extends Component
 			return
 		end
 		local pos = self.Entity.TransformComponent.WorldPosition
-		local p2 = Vector2(pos.x, pos.y)
+		-- 대시 기준점 = 플레이어 중앙(키/2). 조준 방향·미리보기·사거리·착지 모두 중앙 기준.
+		local center = Vector2(pos.x, pos.y + _GameConstants.PlayerCenterYOffset)
 		local cursor = _InputRouter:CursorWorld()
-		local dir = _CombatPrimitives:DirectionTo(p2, cursor)
-		local L = self:ComputeDashLength(p2, dir, cursor)
+		local dir = self:ComputeAimDir(center, cursor)
+		local L = self:ComputeDashLength(center, dir, cursor)
 		local half = L * 0.5
 		local tf = preview.TransformComponent
-		tf.WorldPosition = Vector3(p2.x + dir.x * half, p2.y + dir.y * half, pos.z)
+		tf.WorldPosition = Vector3(center.x + dir.x * half, center.y + dir.y * half, pos.z)
 		tf.WorldZRotation = math.deg(math.atan(dir.y, dir.x))
 		-- 렌더폭 = 실제 대시거리 L. 가로 스케일 = L / 스프라이트 자연폭. 세로는 고정 두께.
 		local sx = L / _GameConstants.DashPreviewSpriteWidth
 		if sx < 0.001 then sx = 0.001 end
 		tf.Scale = Vector3(sx, _GameConstants.DashPreviewHeightScale, 1)
 		sr.Enable = true
-		-- 목적지 마커: 착지점(시작점 + 방향×실제거리)에 표시
-		self:UpdateMarker(true, p2.x + dir.x * L, p2.y + dir.y * L, pos.z)
+		-- 목적지 마커: 착지점(중앙 + 방향×실제거리)에 표시
+		self:UpdateMarker(true, center.x + dir.x * L, center.y + dir.y * L, pos.z)
+		-- 최대 사거리 원: 플레이어 중앙에 반지름 DashDistance로 표시
+		self:UpdateRangeCircle(true, center.x, center.y, pos.z)
 	end
 
 	-- ========== 대시 실행 / 갱신 ==========
@@ -202,12 +274,16 @@ script PlayerDash extends Component
 		end
 
 		local pos = self.Entity.TransformComponent.WorldPosition
-		local pos2 = Vector2(pos.x, pos.y)
-		self.dashDir = _CombatPrimitives:DirectionTo(pos2, targetWorldPos)
-		self.dashStartPos = pos2
-		self.dashLen = self:ComputeDashLength(pos2, self.dashDir, targetWorldPos)
+		local foot = Vector2(pos.x, pos.y)
+		-- 방향/사거리는 중앙(키/2) 기준으로 계산(조준 일관성), 이동 원점은 발(엔티티 원점) 유지.
+		local center = Vector2(pos.x, pos.y + _GameConstants.PlayerCenterYOffset)
+		self.dashDir = self:ComputeAimDir(center, targetWorldPos)
+		self.dashStartPos = foot
+		self.dashLen = self:ComputeDashLength(center, self.dashDir, targetWorldPos)
+		self.dashIsSideView = self:IsDashSideView()
 		self.dashStartTime = _WallClock:Now()
 		self.IsDashing = true
+		self:StopAimPreview()
 		self:StartDashFx()
 
 		-- 대시 중 입력 차단 (이동은 MovementComponent:SetWorldPosition 절대 위치 보간 — 서버로 전파되는 정식 텔레포트 채널)
@@ -216,7 +292,7 @@ script PlayerDash extends Component
 		pc.Enable = false
 
 		log("[PlayerDash] dash start! empowered=" .. tostring(empowered) .. " dir=(" .. string.format("%.2f", self.dashDir.x) .. "," .. string.format("%.2f", self.dashDir.y) .. ") len=" .. string.format("%.2f", self.dashLen) .. " left=" .. tostring(self.DashCount))
-		self:ServerDashStarted(pos2.x, pos2.y, self.dashDir.x, self.dashDir.y, empowered, self.dashLen)
+		self:ServerDashStarted(foot.x, foot.y, self.dashDir.x, self.dashDir.y, empowered, self.dashLen)
 	end
 
 	@ExecSpace("ClientOnly")
@@ -239,7 +315,7 @@ script PlayerDash extends Component
 			if t > 1 then t = 1 end
 			local d = self.dashLen * t
 			local p = Vector2(self.dashStartPos.x + self.dashDir.x * d, self.dashStartPos.y + self.dashDir.y * d)
-			self.Entity.MovementComponent:SetWorldPosition(p)
+			self:DashMoveTo(p)
 			if t >= 1 then
 				self:EndDash()
 			end
@@ -248,12 +324,24 @@ script PlayerDash extends Component
 
 	@ExecSpace("ClientOnly")
 	method void EndDash()
-		-- 대시 종료: 컨트롤러 원복. 무적은 이동 종료 즉시 해제(서버 타이머가 자연 만료).
+		-- 대시 종료: 도착지점 발판 스냅 → 컨트롤러 원복. 무적은 이동 종료 즉시 해제(서버 타이머가 자연 만료).
 		self.IsDashing = false
 		self:StopDashFx()
+		-- 도착지점 스냅(MapleTile 한정): 발이 발판 또는 (스텝오버로 넘은) 낮은 블록 아래로 묻혔으면 위로 올림. 더 높은 표면 우선.
+		if self.dashIsSideView == false then
+			local pos = self.Entity.TransformComponent.WorldPosition
+			local map = self.Entity.CurrentMap
+			local fY = _CombatPrimitives:SnapFootToFoothold(map, pos.x, pos.y, _GameConstants.DashFootholdSnap)
+			local bY = _CombatPrimitives:SnapFootToBlock(map, pos.x, pos.y, _GameConstants.DashStepOverHeight)
+			local snappedY = math.max(fY, bY)
+			if snappedY ~= pos.y then
+				self:DashMoveTo(Vector2(pos.x, snappedY))
+				log("[PlayerDash] arrival snap: y " .. string.format("%.2f", pos.y) .. " -> " .. string.format("%.2f", snappedY) .. " (fh=" .. string.format("%.2f", fY) .. " blk=" .. string.format("%.2f", bY) .. ")")
+			end
+		end
 		self.Entity.PlayerControllerComponent.Enable = self.prevControllerEnable
-		local pos = self.Entity.TransformComponent.WorldPosition
-		log("[PlayerDash] dash end at (" .. string.format("%.2f", pos.x) .. "," .. string.format("%.2f", pos.y) .. ")")
+		local p = self.Entity.TransformComponent.WorldPosition
+		log("[PlayerDash] dash end at (" .. string.format("%.2f", p.x) .. "," .. string.format("%.2f", p.y) .. ")")
 	end
 
 	-- ========== 연출(FX) ==========

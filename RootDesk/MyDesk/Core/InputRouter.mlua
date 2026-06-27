@@ -65,6 +65,10 @@ script InputRouter extends Logic
 			self:Emit("item3", self:CursorWorld())
 		elseif event.key == KeyboardKey.G then
 			self:Emit("debugSlow", self:CursorWorld())
+		elseif event.key == KeyboardKey.Alpha4 and _GameConstants.CheatMode then
+			self:Emit("debugGrantInvincible", self:CursorWorld())
+		elseif event.key == KeyboardKey.Alpha5 and _GameConstants.CheatMode then
+			self:Emit("debugGrantClear", self:CursorWorld())
 		end
 	end
 

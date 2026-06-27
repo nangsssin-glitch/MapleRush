@@ -49,10 +49,29 @@ script GameConstants extends Logic
 
 	property number DashDuration = 0.1
 
-	property number DashDistance = 4.0
+	-- 대시 이동 거리 = 플레이어 5체 길이(base 가로1 ×5) = 5.0 (player_design_doc §3.1.2). 사거리 원·클램프 최대치가 이 값에서 파생.
+	property number DashDistance = 5.0
 
-	-- 대시가 벽(수직 풋홀드) 앞에서 멈출 때 벽으로부터 띄울 여유 거리 (플레이어 반폭 고려).
-	property number DashWallMargin = 0.4
+	-- 대시가 블록 '측면(벽)'에 막혀 정지할 때 벽으로부터 띄울 마진 (플레이어가 벽에 안 박히게; 반폭 0.33+여유).
+	-- 측면(x축) 진입에만 적용 — 바닥/천장(y축, 위·아래 대시)엔 미적용(착지 스냅이 담당)해 하향 대시 0거리 회귀 방지.
+	property number DashWallMargin = 0.35
+
+	-- 대시 불가지역(블록 존) 전용 CollisionGroup 이름. raycast 필터에 사용 — 플레이어/적/allow박스가 속하지 않은
+	-- 전용 그룹이라야 self-hit 없이 블록 존만 깨끗하게 반환됨. Maker 프로젝트 설정 > Collision에서 동일 이름으로 생성 필요.
+	property string DashBlockGroup = "DashBlock"
+
+	-- 접지 상태에서 허용하는 최소 하향 조준 각도의 sin값(=sin15°). 이보다 가파른 하향 조준은 이 각도까지만
+	-- 내려가도록 보정(바닥에 박혀 대시 0거리 되는 것 방지). 매 조준 프레임 호출 → math.sin 회피 위해 sin값 직접 보관.
+	property number DashFloorMinSin = 0.2588
+
+	-- 대시 도착 발판 스냅(MapleTile 한정, 도착지점 한정): 도착 시 발이 발판 표면 아래로 이 거리 이내로만 묻혔으면
+	-- (=하체만 겹침, 상체는 안 걸침) 판정 우위로 발판 위에 올린다. 플레이어 콜라이더 높이 0.7의 절반쯤 → 0.4.
+	property number DashFootholdSnap = 0.4
+
+	-- 접지 대시 스텝오버 높이(방해물 통과 편의): 접지 상태에서 블록(DashBlock) 판정 ray 원점 Y를 이만큼 올려,
+	-- 이보다 낮은 장애물은 무시하고 대시가 넘어가게 함(높은 벽은 그대로 막힘). 도착이 낮은 블록에 박히면 블록 위로 올림.
+	-- 플레이어 중앙 높이(~0.5)의 70% = 0.35로 시작(체감상 0.5는 과함). knob — 키우면 더 높은 장애물도 통과.
+	property number DashStepOverHeight = 0.35
 
 	-- 플레이어 중심 높이 보정 (발밑→중심). 대시/공격 이펙트 배치에 공용.
 	property number PlayerCenterYOffset = 0.5
@@ -121,17 +140,20 @@ script GameConstants extends Logic
 	property number RewardAbilityChance = 0.15
 
 	-- ========== 층 / 스테이지 진행 ==========
-	-- 데모: 일반 2회 → 상점 → 보스 → 클리어 (1층 단판).
-	property integer Floor1NormalStages = 2
+	-- 기획: 1층 일반 4회 → 상점 → 보스, 2층 5회(NormalStagesForFloor=4+(층-1)). 구현목표 2층 (stage_design §2.2.3).
+	property integer Floor1NormalStages = 4
 
-	property integer MaxFloors = 1
+	property integer MaxFloors = 2
 
-	-- 스테이지 타입별 전투/상점 맵 (데모: 일반=map02, 보스=map03, 상점=map04).
+	-- 스테이지 타입별 전투/상점 맵 (일반=map02, 보스=map03, 상점=map04).
 	property string MapNormal = "map02"
 
 	property string MapBoss = "map03"
 
 	property string MapShop = "map04"
+
+	-- SideView(RectTile) 맵에서 적 추격 속도(MovementComponent.InputSpeed). MapleTile은 Rigidbody.MoveVelocity 사용(별개).
+	property number EnemyChaseSpeed = 2.0
 
 	property integer AbilityUsesNormal = 1
 
@@ -174,6 +196,38 @@ script GameConstants extends Logic
 	property string DashDestMarkerName = "DashDestMarker"
 
 	property number DashDestMarkerScale = 0.5
+
+	-- 대시 최대 사거리 원 (조준 중 플레이어 중앙에 표시).
+	property string DashRangeModelId = "dashrangecircle"
+
+	property string DashRangeName = "DashRangeCircle"
+
+	-- 사거리 원 스프라이트의 자연 월드폭(px/100). 228px 스프라이트 → 2.28. 스케일=2×DashDistance/이 값.
+	property number DashRangeSpriteWidth = 2.28
+
+	-- ========== 디버그 / 치트 모드 (릴리스 시 false; MR-D 정리 대상) ==========
+	-- true면 치트 키 활성화: 숫자키 4=임시무적 즉시획득 / 5=투사체무효화 즉시획득 (1~3=아이템슬롯, 4~6 빈키). 능력 획득 플로우 전 테스트용.
+	property boolean CheatMode = true
+
+	-- ========== 대시 디버그 기즈모 (MR-I; MR-D에서 게이팅/제거 대상) ==========
+	-- 항상 켜둔 디버그 기즈모 on/off. true면 PlayerBootstrap이 기즈모 엔티티를 스폰하고 PlayerDashGizmo가 그림.
+	property boolean DashGizmoDebug = true
+
+	-- 기즈모 엔티티 이름 (플레이어 자식; 빔/점 스프라이트 모델 재사용).
+	property string DashGizmoRayName = "DashGizmoRay"
+	property string DashGizmoOriginName = "DashGizmoOrigin"
+	property string DashGizmoEndName = "DashGizmoEnd"
+	-- 블록 박스 외곽선 엣지 풀 접두사. 엔티티명 = 접두사 + 인덱스(0..). 블록 1개 = 엣지 4개.
+	property string DashGizmoEdgePrefix = "DashGizmoEdge"
+	-- 그릴 수 있는 최대 DashBlock 개수(초과 시 로그). 엣지 풀 크기 = 이 값 × 4.
+	property integer DashGizmoMaxBlocks = 3
+	-- 대시 실행 후 실제 경로 잔상을 유지하는 시간(초).
+	property number DashGizmoHold = 1.5
+	-- 박스 외곽선/레이 두께 스케일(빔 세로 스케일).
+	property number DashGizmoEdgeThick = 0.12
+	property number DashGizmoRayThick = 0.2
+	-- 점(원점/도착) 스케일.
+	property number DashGizmoDotScale = 0.35
 
 	-- ========== 공격/피격 이펙트 ==========
 	-- 좌클릭 기본 공격 이펙트 (animationclip, 커서 방향 회전 재생).
@@ -232,7 +286,7 @@ script GameConstants extends Logic
 	end
 
 	method string MapIdForStage(string stageType)
-		-- 스테이지 타입 → 맵 id. 일반(map02) / 보스(map03) / 상점(map04).
+		-- 스테이지 타입 → 맵 id. 보스(map03) / 상점(map04) / 일반(map02).
 		if stageType == "boss" then return self.MapBoss end
 		if stageType == "shop" then return self.MapShop end
 		return self.MapNormal

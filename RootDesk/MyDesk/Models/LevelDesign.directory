@@ -1,7 +1,7 @@
 {
   "Id": "",
   "GameId": "",
-  "EntryKey": "directory://049946d2444243e5acd803b5cc8271e0",
+  "EntryKey": "directory://5e9905afea864fd694db16edea89795e",
   "ContentType": "x-mod/directory",
   "Content": "",
   "Usage": 0,
@@ -13,8 +13,8 @@
   "ContentProto": {
     "Use": "Json",
     "Json": {
-      "entry_id": "directory://049946d2444243e5acd803b5cc8271e0",
-      "name": "Debug",
+      "entry_id": "directory://5e9905afea864fd694db16edea89795e",
+      "name": "LevelDesign",
       "lock": false,
       "folding": false,
       "nameEditable": true

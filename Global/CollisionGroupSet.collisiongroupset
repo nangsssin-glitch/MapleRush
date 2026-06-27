@@ -37,11 +37,16 @@
         {
           "Id": "MOD@Climbable",
           "Name": "Climbable"
+        },
+        {
+          "Id": "2fec08db23d947ff98e49fca06c9b359",
+          "Name": "DashBlock"
         }
       ],
       "Matrix": {
         "4858fbd7e1534edc875c6dc270cb46e1": [
-          "4858fbd7e1534edc875c6dc270cb46e1"
+          "4858fbd7e1534edc875c6dc270cb46e1",
+          "2fec08db23d947ff98e49fca06c9b359"
         ],
         "MOD@TriggerBox": [
           "MOD@TriggerBox"
@@ -57,11 +62,12 @@
         ],
         "MOD@Climbable": [
           "MOD@Climbable"
+        ],
+        "2fec08db23d947ff98e49fca06c9b359": [
+          "4858fbd7e1534edc875c6dc270cb46e1",
+          "2fec08db23d947ff98e49fca06c9b359"
         ]
-      },
-      "worldCoreVersion": "26.5.0.0",
-      "worldStudioVersion": "0.1.0.0",
-      "useService": 0
+      }
     }
   }
 }
