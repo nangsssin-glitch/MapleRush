@@ -1,17 +1,17 @@
 @Component
 script RewardController extends Component
 
-	property Entity rewardRoot = "1f38b808-8dc3-4b76-9522-a00dcaafc7e1"
+	property Entity rewardRoot = "69f097c4-fad2-4832-b6bc-89654862311b"
 
-	property TextComponent mesoText = "b68d900a-4aec-4888-b9da-f3131b710cb0"
+	property TextComponent mesoText = "4037e3d7-ce47-46da-a5fd-c035801d8ebd"
 
-	property ButtonComponent btnStat = "55d01f64-70bb-48e4-a6a9-f8799123a4ff"
+	property ButtonComponent btnStat = "d693a241-fd8b-4acb-ba90-1dd7dc126eb8"
 
-	property ButtonComponent btnItem = "b31091b9-d480-4f24-b425-63eb751f5b81"
+	property ButtonComponent btnItem = "8d8c2ed3-9c4c-4221-a7f6-b776507d71f2"
 
-	property ButtonComponent btnAbility = "b8ebb68c-7808-4c29-81ba-38b97de021c3"
+	property ButtonComponent btnAbility = "9fe693d8-3503-4764-80fc-d6a81b18c631"
 
-	property ButtonComponent btnContinue = "12a848dd-26a9-4933-9d24-61972fcebef5"
+	property ButtonComponent btnContinue = "928cc48c-9ab4-47a9-89e5-fc0a3ce3096e"
 
 	property any hStat = nil
 
