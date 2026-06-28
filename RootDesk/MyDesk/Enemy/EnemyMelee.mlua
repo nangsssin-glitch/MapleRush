@@ -84,7 +84,7 @@ script EnemyMelee extends Component
 			if self.stateTimer <= 0 then
 				local rec = self.pendingAttack
 				if rec ~= nil and rec.canceled == false then
-					if _CombatPrimitives:CircleOverlap(rec.center, rec.radius, playerCenter, 0.5) then
+					if _CombatPrimitives:RecordOverlapsCircle(rec, playerCenter, 0.5) then
 						---@type PlayerHit
 						local hitComp = player:GetComponent("script.PlayerHit")
 						if hitComp ~= nil then
@@ -113,7 +113,11 @@ script EnemyMelee extends Component
 				-- 공격 개시: 텔레그래프 등록 (슬로우 트리거/패링 대상)
 				self.aiState = "windup"
 				self.stateTimer = self.WindupTime
-				self.pendingAttack = _CombatPrimitives:RegisterEnemyAttack(myCenter, self.AttackRadius, 1, self.AttackParryable, self.WindupTime)
+				local facingX = 1
+				if dx < 0 then facingX = -1 end
+				local f = _GameConstants.EnemyMeleeBoxForward
+				local boxCenter = Vector2(myCenter.x + facingX * f * 0.5, myCenter.y)
+				self.pendingAttack = _CombatPrimitives:RegisterEnemyAttackBox(boxCenter, f * 0.5, _GameConstants.EnemyMeleeBoxHeight * 0.5, 1, self.AttackParryable, self.WindupTime, self.Entity)
 				self:StopMove()
 				self:PlayClip(_GameConstants.MeleeAttackClip)
 				log("[EnemyMelee] " .. self.Entity.Name .. " windup start (parryable=" .. tostring(self.AttackParryable) .. ")")

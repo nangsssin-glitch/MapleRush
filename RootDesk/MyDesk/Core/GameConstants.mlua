@@ -19,7 +19,7 @@ script GameConstants extends Logic
 	-- ========== 범위 반지름 (플레이어 중심 원형, world unit) ==========
 	property number RadiusAttack = 2.0
 
-	property number RadiusSlowTrigger = 1.0
+	property number RadiusSlowTrigger = 2.5
 
 	property number RadiusMeleeDetect = 3.0
 
@@ -30,6 +30,25 @@ script GameConstants extends Logic
 	property number RadiusProjectile = 0.2
 
 	property number RadiusSmoke = 3.0
+
+	-- ========== 공격 박스 판정 (원→AABB 박스, world unit) ==========
+	-- 적 근접 평타: 적 정면으로 뻗는 전방 박스 (forward=사거리, height=세로). 높이는 점프/위-대시로 윗변 회피 가능하게.
+	property number EnemyMeleeBoxForward = 2.0
+	property number EnemyMeleeBoxHeight = 1.5
+	-- 보스 slam: 전방 박스 (적보다 큼).
+	property number BossSlamBoxForward = 2.5
+	property number BossSlamBoxHeight = 2.0
+	-- 보스 redSmash: 중앙 박스 (가로 넓고 세로 낮음 → 좌우 도주 차단, 점프/위-대시로만 회피). half = 반폭/반높이.
+	property number BossRedSmashBoxHalfW = 3.5
+	property number BossRedSmashBoxHalfH = 1.2
+	-- 플레이어 평타: 커서 좌/우 방향 전방 수평 박스.
+	property number PlayerAttackBoxForward = 2.5
+	property number PlayerAttackBoxHeight = 2.0
+	-- 보스 tripleShot 세로 스프레드(레인/발사 공용 — ResolvePattern의 i*0.6와 동일 값).
+	property number BossTripleSpread = 0.6
+	-- 원거리 예상 공격 레인 기즈모: 길이(투사체 가시 사거리 근사) + 폭(투사체 굵기×2).
+	property number GizmoRangedLaneLength = 6.0
+	property number GizmoRangedLaneWidth = 0.4
 
 	-- ========== 데미지 배율 (ATK 기준 %) ==========
 	property number DmgAttackPct = 1.0
@@ -212,25 +231,39 @@ script GameConstants extends Logic
 	-- true면 치트 키 활성화: 숫자키 4=임시무적 즉시획득 / 5=투사체무효화 즉시획득 (1~3=아이템슬롯, 4~6 빈키). 능력 획득 플로우 전 테스트용.
 	property boolean CheatMode = true
 
-	-- ========== 대시 디버그 기즈모 (MR-I; MR-D에서 게이팅/제거 대상) ==========
-	-- 항상 켜둔 디버그 기즈모 on/off. true면 PlayerBootstrap이 기즈모 엔티티를 스폰하고 PlayerDashGizmo가 그림.
-	property boolean DashGizmoDebug = true
+	-- ========== 기즈모 (중앙 GizmoManager retained-mode; 대시 + 전투 일괄 on/off; 릴리스 시 false, MR-D 정리 대상) ==========
+	-- 모든 기즈모의 단일 마스터 스위치(start-time). PlayerBootstrap이 이 값으로 풀 스폰 + 소스 부착, 서버는 이 값으로 전투 브로드캐스트 게이팅.
+	-- off면 풀/소스 미생성 + 브로드캐스트 미전송 → 매니저(@Logic)는 무해 no-op. (런타임 핫토글 아님 — 켜고 끄려면 재시작.)
+	property boolean DrawGizmo = true
 
-	-- 기즈모 엔티티 이름 (플레이어 자식; 빔/점 스프라이트 모델 재사용).
-	property string DashGizmoRayName = "DashGizmoRay"
-	property string DashGizmoOriginName = "DashGizmoOrigin"
-	property string DashGizmoEndName = "DashGizmoEnd"
-	-- 블록 박스 외곽선 엣지 풀 접두사. 엔티티명 = 접두사 + 인덱스(0..). 블록 1개 = 엣지 4개.
-	property string DashGizmoEdgePrefix = "DashGizmoEdge"
-	-- 그릴 수 있는 최대 DashBlock 개수(초과 시 로그). 엣지 풀 크기 = 이 값 × 4.
+	-- 라인 홀더 모델 (TransformOnly + LineRendererComponent; 런타임 AddComponent 불가 → .model authoring 필수). 매니저 라인 풀에서 재사용.
+	property string DashGizmoLineModelId = "dashgizmoline"
+
+	-- 중앙 매니저 홀더 풀: 라인(LineRenderer) N + 점(Sprite) K. 맵 자식으로 인덱스 네이밍 스폰(prefix+i, 0-base). 매니저가 맵 자식에서 이름으로 조회.
+	-- retained-mode 고정 슬롯 레이아웃(GizmoManager가 인덱스→역할 매핑 + 1회 bake): 0=사거리원 1=플레이어피격원(green,r=0.5) 2=레이선 3~5=블록박스
+	-- 6=플레이어평타박스(하늘) 7~14=투사체원(×8) 15~20=적공격박스 노랑(×6) 21~26=적공격박스 빨강(×6) 27~34=원거리레인박스 노랑(×8) 35~46=적피격원 마젠타(r=RadiusEnemyHitbox,×12) = 총 47.
+	property integer GizmoLinePoolSize = 47
+	property integer GizmoDotPoolSize = 4
+	property string GizmoLinePoolPrefix = "GizmoLine"
+	property string GizmoDotPoolPrefix = "GizmoDot"
+
+	-- 원 근사 폴리라인 분할 점 개수(매니저 :Circle 공용 — 대시 사거리 + 전투 공격/투사체/근접 원).
+	property integer GizmoCircleSegments = 40
+
+	-- 그릴 수 있는 최대 DashBlock 개수(기하 클램프; 초과 시 경고 후 절단). 풀 크기와 무관(매니저 공유 풀).
 	property integer DashGizmoMaxBlocks = 3
 	-- 대시 실행 후 실제 경로 잔상을 유지하는 시간(초).
 	property number DashGizmoHold = 1.5
-	-- 박스 외곽선/레이 두께 스케일(빔 세로 스케일).
-	property number DashGizmoEdgeThick = 0.12
-	property number DashGizmoRayThick = 0.2
-	-- 점(원점/도착) 스케일.
+	-- 라인 두께(LinePoint.Width, 월드유닛). 대시 블록/사거리 공용.
+	property number DashGizmoLineWidth = 0.4
+	-- 대시 레이 라인 두께(월드유닛).
+	property number DashGizmoRayWidth = 0.3
+	-- 점(원점/도착) 스프라이트 스케일.
 	property number DashGizmoDotScale = 0.35
+
+	-- 전투 기즈모: 원 라인 두께(동시 다수 대비 얇게) + 플레이어 공격 플래시 표시 시간(초; AttackCooldown 0.5보다 짧아 비중첩).
+	property number GizmoCombatWidth = 0.15
+	property number GizmoAttackFlash = 0.15
 
 	-- ========== 공격/피격 이펙트 ==========
 	-- 좌클릭 기본 공격 이펙트 (animationclip, 커서 방향 회전 재생).

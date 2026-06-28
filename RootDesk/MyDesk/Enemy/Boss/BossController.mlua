@@ -12,6 +12,9 @@ script BossController extends Component
 
 	property integer shotIndex = 0
 
+	-- 클라 기즈모용: tripleShot windup 동안 true. 3갈래 예상 레인 표시 트리거.
+	@Sync property boolean TelegraphTriple = false
+
 	-- 모션 구동: 모델 기본 SpriteRUID(stand)를 캡처해 두고 상태별로 교체 (EnemyMelee와 동일 방식).
 	property string standClip = ""
 
@@ -42,7 +45,7 @@ script BossController extends Component
 		-- 보스 AI: 그로기 중 완전 정지 / 패턴 풀 랜덤 사이클. 연막·섬광 무시 (보스 면역).
 		---@type EnemyHealth
 		local hp = self.Entity:GetComponent("script.EnemyHealth")
-		if hp ~= nil and hp.IsDead == true then return end
+		if hp ~= nil and hp.IsDead == true then self.TelegraphTriple = false return end
 		if _StageManager:IsGraceActive() then
 			self:CancelWindup()
 			self:StopMove()
@@ -96,7 +99,11 @@ script BossController extends Component
 	method void CancelWindup()
 		-- 그로기/그레이스로 윈드업이 끊기면 묵은 공격 레코드 폐기 + 패턴 사이클 리셋 (재개 후 옛 위치 명중 방지).
 		if self.phase == "windup" then
+			if self.pendingAttack ~= nil and self.pendingAttack.id ~= nil then
+				_CombatPrimitives:BroadcastCancel(self.Entity.CurrentMap, self.pendingAttack.id)
+			end
 			self.pendingAttack = nil
+			self.TelegraphTriple = false
 			self.phase = "delay"
 			self.phaseTimer = _GameConstants.BossPatternDelay
 		end
@@ -110,8 +117,12 @@ script BossController extends Component
 			self.currentPattern = "slam"
 			self.phase = "windup"
 			self.phaseTimer = 0.8
-			self.pendingAttack = _CombatPrimitives:RegisterEnemyAttack(myCenter, 1.5, 1, true, 0.8)
+			local sFacing = 1
+			if playerCenter.x < myCenter.x then sFacing = -1 end
+			local sf = _GameConstants.BossSlamBoxForward
+			self.pendingAttack = _CombatPrimitives:RegisterEnemyAttackBox(Vector2(myCenter.x + sFacing * sf * 0.5, myCenter.y), sf * 0.5, _GameConstants.BossSlamBoxHeight * 0.5, 1, true, 0.8, self.Entity)
 			self.pendingAttack.bossEntityId = self.Entity.Name
+			self.TelegraphTriple = false
 			self:StopMove()
 			self:PlayClip(_GameConstants.BossAttackClip)
 			log("[BossController] pattern SLAM (yellow, windup 0.8s)")
@@ -119,6 +130,7 @@ script BossController extends Component
 			self.currentPattern = "tripleShot"
 			self.phase = "windup"
 			self.phaseTimer = 0.6
+			self.TelegraphTriple = true
 			self:StopMove()
 			self:PlayClip(_GameConstants.BossSkillClip)
 			log("[BossController] pattern TRIPLE SHOT (yellow, windup 0.6s)")
@@ -126,7 +138,8 @@ script BossController extends Component
 			self.currentPattern = "redSmash"
 			self.phase = "windup"
 			self.phaseTimer = 1.0
-			self.pendingAttack = _CombatPrimitives:RegisterEnemyAttack(myCenter, 2.0, 1, false, 1.0)
+			self.TelegraphTriple = false
+			self.pendingAttack = _CombatPrimitives:RegisterEnemyAttackBox(myCenter, _GameConstants.BossRedSmashBoxHalfW, _GameConstants.BossRedSmashBoxHalfH, 1, false, 1.0, self.Entity)
 			self:StopMove()
 			self:PlayClip(_GameConstants.BossSkillClip)
 			log("[BossController] pattern RED SMASH (red — unparryable, windup 1.0s)")
@@ -139,7 +152,7 @@ script BossController extends Component
 		if self.currentPattern == "slam" or self.currentPattern == "redSmash" then
 			local rec = self.pendingAttack
 			if rec ~= nil and rec.canceled == false then
-				if _CombatPrimitives:CircleOverlap(rec.center, rec.radius, playerCenter, 0.5) then
+				if _CombatPrimitives:RecordOverlapsCircle(rec, playerCenter, 0.5) then
 					---@type PlayerHit
 					local hitComp = player:GetComponent("script.PlayerHit")
 					if hitComp ~= nil then
@@ -175,6 +188,7 @@ script BossController extends Component
 		-- ⚠️ slam/redSmash의 RequestHit가 플레이어 사망→ResetStage를 동기 트리거하면 이 보스가 파괴됨.
 		--    파괴된 self에 메서드 호출 시 LEA-2011 ('PlayClip' is nil) → isvalid 가드 필수.
 		if isvalid(self.Entity) == false then return end
+		self.TelegraphTriple = false
 		self:PlayClip(self.standClip)
 		self.phase = "delay"
 		self.phaseTimer = _GameConstants.BossPatternDelay

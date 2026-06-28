@@ -10,15 +10,17 @@ touches:
   - RootDesk/MyDesk/Core/GameConstants.mlua
   - RootDesk/MyDesk/Enemy/Projectile.mlua
 depends_on:
-  - MR-S
+  - MR-I
 created: 2026-06-19
-updated: 2026-06-19
+updated: 2026-06-20
 ---
 
 # 일반 스테이지 맵 다양화 (3~4개 수제작 + 랜덤 풀)
 
 ## Goal
-일반 4스테이지가 전부 같은 맵(map02)·같은 4스폰포인트라 한 바퀴가 반복적이다. **MR-S에서 확정한 타일 모드**로 테마1(오르비스/엘나스/폐광) 분위기 맵 3~4개를 만들고 랜덤 풀로 돌려 한 바퀴가 다양하게 느껴지게 한다.
+일반 4스테이지가 전부 같은 맵(map02)·같은 4스폰포인트라 한 바퀴가 반복적이다. **MapleTile(0) 모드**(MR-S 확정)로 테마1(오르비스/엘나스/폐광) 분위기 맵 3~4개를 만들고 랜덤 풀로 돌려 한 바퀴가 다양하게 느껴지게 한다.
+
+**authoring 구조(MR-S 합의):** ① 타일 배치 → ② 몬스터 배치 → ③ 장애물/밧줄(밧줄=방 구분 + 플레이어 Body 충돌). 한 맵에 **여러 방** 가능, 방은 직사각형이 아닐 수 있음. 각 방은 **대시 클램프용 RoomRegion 마커**(MR-I 포맷)를 들고 온다.
 
 ## Acceptance criteria
 - [ ] 일반 스테이지 맵 3~4개 제작 (확정 모드, Foothold/시작점/스폰포인트 정의)
@@ -31,10 +33,12 @@ updated: 2026-06-19
 - [ ] (작업 시작 시 owner가 채움)
 
 ## Notes / decisions
-- 🔒 **MR-S(타일 모드 확정) 선행 필수.** 모드 미정 상태로 맵 양산 금지.
+- ✅ **모드 확정: MapleTile(0)** (MR-S done). SideView는 리소스 문제(타일셋 재사용 불가)로 미채택.
+- 🔒 **MR-I(대시 RoomRegion 마커 포맷) 선행 필수** — 방 마커를 맵에 심으려면 마커 모델/포맷이 먼저 정의돼야 함. 단, **타일·몬스터 배치(①②)는 MR-I와 병렬 가능**; 방 마커(③ 영역)만 MR-I 대기.
 - 설계는 20개+이지만 MVP는 3~4개로 충분 (stage_design §2.3.4).
 - Foothold 배치 등은 Maker 에디터 작업이 필요할 수 있음 → 맵 지형은 사용자가 Maker에서, 스폰 데이터·풀 로직은 스크립트로 분업 가능.
 - ⚠️ 겹침: StageManager.mlua / GameConstants.mlua를 MR-F·MR-B와 공유. 순서·분담 조율.
+- ⚠️ 정리 선후: `MapNormal`/`NormalMapChoice` 스파이크 잔재는 MR-D에서 원복 후 맵 풀 로직 작업 권장(충돌 방지).
 
 ## Verify
 - Maker `play` → 노드 진행하며 일반 4스테이지가 서로 다른 맵인지 + 투사체 소멸 정상인지 확인 → `logs`.

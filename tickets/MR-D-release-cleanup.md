@@ -24,6 +24,17 @@ updated: 2026-06-19
 - [ ] `PlayerCombat.RequestDebugSlow`(현재 ungated) 제거 또는 게이팅
 - [ ] (선택) 슬로우모션 '플레이어 제외' 방식 최종 결정 — 글로벌 타임스케일 유지 vs per-entity만
 
+### MR-S 스파이크 잔재 정리 (MapleTile 확정에 따라 — 2026-06-20 일괄 처리됨)
+- [x] `GameConstants.MapNormal` `"mapSV"`→`"map02"` 원복 + 죽은 코드(NormalMapChoice 그림자) 제거 (리뷰 #1)
+- [x] `GameConstants.NormalMapChoice`(@Sync) 제거 + `MapIdForStage` 단순화
+- [x] `FloorManager.RequestSelectNode` SV/MV 분기 제거 → `StartStage("normal")`
+- [x] 노드 UI 원복: `NodeSelectController` 타이틀 "노드 선택", `NodeSelectGroup.ui` 버튼 "전투 A/B/C" + BtnNode3 재활성 (UIBuilder, lint clean)
+- [x] Debug 파일 삭제: `Debug/DebugMapToggle.{mlua,codeblock}`, `Debug/SideViewArenaBuilder.{mlua,codeblock}`, `Debug.directory` (폴더 비움)
+- [x] SideView 에셋 삭제: `map/mapSV.map`, `SVTilemap.tileset`
+- [ ] **[사용자/Maker]** `Global/SectorConfig.config`에서 `mapSV` 등록 해제 (Global/ 읽기전용 → AI 불가)
+- [ ] (선택) `docs/MapleRush_CodeMap.html`의 mapSV/Debug 참조 갱신 — 생성 문서라 런타임 무관
+- [ ] 휴면 SideView 분기(적 `IsSideViewMap`/`ChaseToward`, 대시 `DashMoveTo`/`IsDashSideView`, `EnemyChaseSpeed`, 적 모델 Sideviewbody)는 MapleTile에선 무해 → **MR-G(적 FSM 정비)에서 정리**
+
 ## Subtasks
 - [ ] (작업 시작 시 owner가 채움)
 

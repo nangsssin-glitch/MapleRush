@@ -1,0 +1,142 @@
+@Component
+script CombatGizmo extends Component
+
+	-- 전투 디버그 기즈모 '소스'(@Component ClientOnly LocalPlayer). 매니저(retained-mode) 의미 메서드로 그림. 게이트 = _GameConstants.DrawGizmo.
+	-- (1) 플레이어 공격 플래시 박스(하늘색) — 형제 PlayerCombat.lastAttackTime/lastAttackFacingX 폴링(쿨/대시/아이템 게이트 통과한 공격만 기록됨).
+	-- (2) 적 투사체 원(주황) — map의 script.Projectile 열거, OwnerSide=="enemy" 필터(반사 시 'player' 동기→자동 제외). 브로드캐스트 불필요.
+	-- (3) 적 근접/보스 공격 박스(windup=노랑 / 명중임박·무패링=빨강) — 서버 브로드캐스트 수신분(_CombatPrimitives.clientEnemyAttacks).
+
+	@HideFromInspector property any combat = nil
+
+	@ExecSpace("ClientOnly")
+	method void OnBeginPlay()
+		-- 로컬 플레이어 전용. PlayerCombat 형제 참조 캐시.
+		if self.Entity ~= _UserService.LocalPlayer then return end
+		self.combat = self.Entity:GetComponent("script.PlayerCombat")
+		log("[CombatGizmo] OnBeginPlay (combat=" .. tostring(self.combat ~= nil) .. ", draw=" .. tostring(_GameConstants.DrawGizmo) .. ")")
+	end
+
+	@ExecSpace("ClientOnly")
+	method void OnUpdate(number delta)
+		-- 전투 기즈모 매 프레임 갱신. 매니저가 프레임 시작에 클리어 → 여기선 그릴 원만 호출.
+		if _GameConstants.DrawGizmo == false then return end
+		local player = _UserService.LocalPlayer
+		if player == nil or isvalid(player) == false or self.Entity ~= player then return end
+
+		-- (0) 플레이어 피격원 (green, r=0.5) — 매 프레임 상시. 실제 판정과 동일 중심(pos.y + PlayerCenterYOffset).
+		local php = player.TransformComponent.WorldPosition
+		_GizmoManager:PlayerHurtbox(Vector2(php.x, php.y + _GameConstants.PlayerCenterYOffset))
+
+		-- (1) 플레이어 공격 플래시 박스 (커서 좌/우 전방 박스, 짧은 시간)
+		if self.combat == nil then self.combat = self.Entity:GetComponent("script.PlayerCombat") end
+		if self.combat ~= nil then
+			---@type PlayerCombat
+			local pc = self.combat
+			if _WallClock:IsExpired(pc.lastAttackTime, _GameConstants.GizmoAttackFlash) == false then
+				local pp = self.Entity.TransformComponent.WorldPosition
+				-- 평타 박스: 마지막 평타의 커서 좌/우 방향으로 전방 오프셋 + 플레이어 중심 보정.
+				local facingX = pc.lastAttackFacingX
+				local f = _GameConstants.PlayerAttackBoxForward
+				local bcx = pp.x + facingX * f * 0.5
+				local bcy = pp.y + _GameConstants.PlayerCenterYOffset
+				_GizmoManager:AttackFlash(Vector2(bcx, bcy), f * 0.5, _GameConstants.PlayerAttackBoxHeight * 0.5)
+			end
+		end
+
+		local map = player.CurrentMap
+		if isvalid(map) == false then return end
+
+		-- (1b) 적 피격원 (마젠타, r=RadiusEnemyHitbox) — 살아있는 적 전부, raw transform 좌표(=CombatPrimitives 판정 중심). 사망 적 제외.
+		local enemies = map:GetChildComponentsByTypeName("script.EnemyHealth", true)
+		if enemies ~= nil then
+			for _, compAny in ipairs(enemies) do
+				---@type EnemyHealth
+				local hpComp = compAny
+				local e = hpComp.Entity
+				if isvalid(e) and hpComp.IsDead == false then
+					local ep = e.TransformComponent.WorldPosition
+					_GizmoManager:EnemyHurtbox(Vector2(ep.x, ep.y))
+				end
+			end
+		end
+
+		-- (2) 적 투사체 원 (주황)
+		local list = map:GetChildComponentsByTypeName("script.Projectile", true)
+		if list ~= nil then
+			for _, compAny in ipairs(list) do
+				---@type Projectile
+				local comp = compAny
+				local e = comp.Entity
+				if isvalid(e) and comp.OwnerSide == "enemy" then
+					local p = e.TransformComponent.WorldPosition
+					_GizmoManager:Projectile(Vector2(p.x, p.y))
+				end
+			end
+		end
+
+		-- (3) 브로드캐스트 적 근접/보스 공격원 (windup=노랑 / 명중임박·무패링=빨강). 만료(life 경과) 제거도 여기서.
+		local atks = _CombatPrimitives:GetClientEnemyAttacks()
+		if atks ~= nil then
+			local now = _WallClock:Now()
+			for i = #atks, 1, -1 do
+				local a = atks[i]
+				local elapsed = now - a.recvAt
+				if elapsed >= a.life then
+					table.remove(atks, i)
+				else
+					-- 색 = 풀 선택(Points 불변): 패링가능 + 텔레그래프 구간만 노랑, 그 외(패링불가 / 명중임박)는 빨강.
+					local isRed = true
+					if a.parryable ~= false and (a.windup - elapsed) > 0.15 then
+						isRed = false
+					end
+					_GizmoManager:EnemyAttackBox(a.center, a.hw, a.hh, isRed)
+				end
+			end
+		end
+
+		-- (4) 예상 공격 레인(회전 직사각형) — 클라 계산. 원거리 단발 1갈래 + 보스 tripleShot 3갈래.
+		local laneLen = _GameConstants.GizmoRangedLaneLength
+		local laneW = _GameConstants.GizmoRangedLaneWidth
+		local pc3 = _UserService.LocalPlayer.TransformComponent.WorldPosition
+		local playerCenter = Vector2(pc3.x, pc3.y + _GameConstants.PlayerCenterYOffset)
+
+		-- 원거리 단발: 조준 중(IsAiming) 적 → 적→플레이어 1갈래
+		local rangedList = map:GetChildComponentsByTypeName("script.EnemyRanged", true)
+		if rangedList ~= nil then
+			for _, compAny in ipairs(rangedList) do
+				---@type EnemyRanged
+				local comp = compAny
+				local e = comp.Entity
+				if isvalid(e) and comp.IsAiming == true then
+					local ep = e.TransformComponent.WorldPosition
+					local ec = Vector2(ep.x, ep.y + 0.5)
+					local dir = _CombatPrimitives:DirectionTo(ec, playerCenter)
+					_GizmoManager:AttackLane(ec, dir, laneLen, laneW)
+				end
+			end
+		end
+
+		-- 보스 tripleShot: windup 중(TelegraphTriple) → ±BossTripleSpread 3갈래
+		local bossList = map:GetChildComponentsByTypeName("script.BossController", true)
+		if bossList ~= nil then
+			local spread = _GameConstants.BossTripleSpread
+			for _, compAny in ipairs(bossList) do
+				---@type BossController
+				local comp = compAny
+				local e = comp.Entity
+				if isvalid(e) and comp.TelegraphTriple == true then
+					local bp = e.TransformComponent.WorldPosition
+					local bc = Vector2(bp.x, bp.y + 0.5)
+					local i = -1
+					while i <= 1 do
+						local target = Vector2(playerCenter.x, playerCenter.y + i * spread)
+						local dir = _CombatPrimitives:DirectionTo(bc, target)
+						_GizmoManager:AttackLane(bc, dir, laneLen, laneW)
+						i = i + 1
+					end
+				end
+			end
+		end
+	end
+
+end

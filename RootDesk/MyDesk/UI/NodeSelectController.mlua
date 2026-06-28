@@ -40,7 +40,7 @@ script NodeSelectController extends Component
 	method void Open(integer stageNo, integer totalStages)
 		-- 3분기 노드 선택 (현재 전부 일반 스테이지 — stage_design §2.2.3).
 		self.nodeRoot.Enable = true
-		self.titleText.Text = "타일맵 선택 — 조작감 비교 (" .. tostring(stageNo) .. "/" .. tostring(totalStages) .. ")"
+		self.titleText.Text = "노드 선택 (" .. tostring(stageNo) .. "/" .. tostring(totalStages) .. ")"
 		log("[NodeSelectController] opened " .. tostring(stageNo) .. "/" .. tostring(totalStages))
 	end
 

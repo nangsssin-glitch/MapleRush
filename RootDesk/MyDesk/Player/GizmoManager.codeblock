@@ -1,7 +1,7 @@
 {
   "Id": "",
   "GameId": "",
-  "EntryKey": "codeblock://8ba531c0-4f3c-4a52-8685-758f0ba4212d",
+  "EntryKey": "codeblock://818a2530-1d8c-4d93-be59-5de74b1e4bf4",
   "ContentType": "x-mod/codeblock",
   "Content": "",
   "Usage": 0,
@@ -22,10 +22,10 @@
         "Minor": 1
       },
       "Description": "",
-      "Id": "8ba531c0-4f3c-4a52-8685-758f0ba4212d",
+      "Id": "818a2530-1d8c-4d93-be59-5de74b1e4bf4",
       "Language": 1,
-      "Name": "SideViewArenaBuilder",
-      "Type": 1,
+      "Name": "GizmoManager",
+      "Type": 5,
       "Source": 0,
       "Target": null
     }

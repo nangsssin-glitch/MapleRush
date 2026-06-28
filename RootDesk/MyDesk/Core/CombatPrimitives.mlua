@@ -16,6 +16,9 @@ script CombatPrimitives extends Logic
 
 	property any blockColliderCache = nil
 
+	-- 클라측 수신 적 근접 공격 원 목록(전투 기즈모 표시 전용). 항목 {id,center,radius,parryable,windup,life,recvAt}. CombatGizmo가 카운트다운·제거.
+	property any clientEnemyAttacks = nil
+
 	@ExecSpace("ServerOnly")
 	method void OnUpdate(number delta)
 		-- 만료된 공격 레코드 정리 (서버, 매 프레임).
@@ -29,15 +32,20 @@ script CombatPrimitives extends Logic
 	end
 
 	@ExecSpace("ServerOnly")
-	method table RegisterEnemyAttack(Vector2 center, number radius, number damage, boolean parryable, number hitDelay)
-		-- 적 근접 공격 레코드 등록(서버). hitDelay(텔레그래프) 후 명중 판정, 직후 만료. 반환: 레코드 테이블.
+	method table RegisterEnemyAttackBox(Vector2 boxCenter, number hw, number hh, number damage, boolean parryable, number hitDelay, Entity sourceEntity)
+		-- 적 공격 박스 레코드 등록(서버). hitDelay(텔레그래프) 후 명중 판정, 직후 만료. 반환: 레코드 테이블.
+		-- boxCenter/hw/hh는 호출부가 전방/중앙 기하로 계산해 넘김(프리미티브는 AABB만 저장).
+		-- sourceEntity: 공격 주체 적(맵/유저 산출용 — 기즈모 브로드캐스트 대상). 판정 로직엔 미사용(무손상).
 		if self.activeAttacks == nil then self.activeAttacks = {} end
 		self.nextAttackId += 1
 		local now = _UtilLogic.ServerElapsedSeconds
 		local rec = {
 			id = self.nextAttackId,
-			center = center,
-			radius = radius,
+			shape = "box",
+			center = boxCenter,
+			hw = hw,
+			hh = hh,
+			radius = 0,
 			damage = damage,
 			parryable = parryable,
 			hitAt = now + hitDelay,
@@ -47,7 +55,17 @@ script CombatPrimitives extends Logic
 			bossEntityId = nil,
 		}
 		table.insert(self.activeAttacks, rec)
+		-- 기즈모 통지: 남은 windup=hitDelay, 남은 life=hitDelay+0.25(=expireAt-now). 절대 ServerElapsedSeconds 누수 금지 — 상대초만.
+		self:BroadcastEnemyAttack(sourceEntity, rec.id, boxCenter, hw, hh, hitDelay, hitDelay + 0.25, parryable)
 		return rec
+	end
+
+	method boolean RecordOverlapsCircle(table rec, Vector2 circleCenter, number r)
+		-- 공격 레코드 vs 원 디스패처. 현 레코드는 전부 box지만 안전하게 circle도 처리.
+		if rec.shape == "box" then
+			return self:BoxCircleOverlap(rec.center, rec.hw, rec.hh, circleCenter, r)
+		end
+		return self:CircleOverlap(rec.center, rec.radius, circleCenter, r)
 	end
 
 	@ExecSpace("ServerOnly")
@@ -55,7 +73,7 @@ script CombatPrimitives extends Logic
 		-- 슬로우 모션 트리거 판정: 활성 적 공격 레코드 또는 적 투사체가 radius 내 존재하는지 (서버).
 		if self.activeAttacks ~= nil then
 			for _, rec in ipairs(self.activeAttacks) do
-				if rec.canceled == false and self:CircleOverlap(center, radius, rec.center, rec.radius) then
+				if rec.canceled == false and self:RecordOverlapsCircle(rec, center, radius) then
 					return true
 				end
 			end
@@ -78,14 +96,15 @@ script CombatPrimitives extends Logic
 	end
 
 	@ExecSpace("ServerOnly")
-	method integer TryParry(Entity mapEntity, Vector2 attackCenter, number attackRadius, number reflectDamage)
-		-- 평타 판정 원과 겹치는 parryable 공격 처리: 근접 공격 무효화 / 투사체 반사(ATK×200%). 반환: 패링 수.
+	method integer TryParry(Entity mapEntity, Vector2 boxCenter, number hw, number hh, number reflectDamage)
+		-- 평타 판정 박스와 겹치는 parryable 공격 처리: 근접 공격 무효화 / 투사체 반사(ATK×200%). 반환: 패링 수.
 		local count = 0
 		if self.activeAttacks ~= nil then
 			for _, rec in ipairs(self.activeAttacks) do
-				if rec.canceled == false and rec.parryable and self:CircleOverlap(attackCenter, attackRadius, rec.center, rec.radius) then
+				if rec.canceled == false and rec.parryable and self:BoxBoxOverlap(boxCenter, hw, hh, rec.center, rec.hw, rec.hh) then
 					rec.canceled = true
 					count += 1
+					self:BroadcastCancel(mapEntity, rec.id)
 					log("[CombatPrimitives] melee attack PARRIED (id=" .. tostring(rec.id) .. ")")
 					-- 보스 근거리 패링: 그로기 게이지 즉시 (ATK×100%)×2 충전 (stage_design §1.4.2)
 					if rec.bossEntityId ~= nil and mapEntity ~= nil then
@@ -109,7 +128,7 @@ script CombatPrimitives extends Logic
 				local e = comp.Entity
 				if isvalid(e) and comp.OwnerSide == "enemy" and comp.Parryable == true then
 					local p = e.TransformComponent.WorldPosition
-					if self:CircleOverlap(attackCenter, attackRadius, Vector2(p.x, p.y), _GameConstants.RadiusProjectile) then
+					if self:BoxCircleOverlap(boxCenter, hw, hh, Vector2(p.x, p.y), _GameConstants.RadiusProjectile) then
 						comp:Reflect(reflectDamage)
 						count += 1
 						log("[CombatPrimitives] projectile REFLECTED (dmg=" .. tostring(reflectDamage) .. ")")
@@ -126,6 +145,26 @@ script CombatPrimitives extends Logic
 		local dy = centerB.y - centerA.y
 		local r = radiusA + radiusB
 		return dx * dx + dy * dy <= r * r
+	end
+
+	method boolean BoxCircleOverlap(Vector2 boxCenter, number hw, number hh, Vector2 circleCenter, number r)
+		-- AABB(중심 boxCenter, 반폭 hw, 반높이 hh) vs 원(circleCenter, r). 원 중심을 박스에 클램프한 최근접점 거리 ≤ r.
+		local nx = circleCenter.x
+		local minx = boxCenter.x - hw
+		local maxx = boxCenter.x + hw
+		if nx < minx then nx = minx elseif nx > maxx then nx = maxx end
+		local ny = circleCenter.y
+		local miny = boxCenter.y - hh
+		local maxy = boxCenter.y + hh
+		if ny < miny then ny = miny elseif ny > maxy then ny = maxy end
+		local dx = circleCenter.x - nx
+		local dy = circleCenter.y - ny
+		return dx * dx + dy * dy <= r * r
+	end
+
+	method boolean BoxBoxOverlap(Vector2 aCenter, number aHw, number aHh, Vector2 bCenter, number bHw, number bHh)
+		-- AABB-AABB. 두 박스 중심 거리가 각 축 반폭/반높이 합 이내면 겹침.
+		return math.abs(aCenter.x - bCenter.x) <= (aHw + bHw) and math.abs(aCenter.y - bCenter.y) <= (aHh + bHh)
 	end
 
 	method table MakeAttack(Vector2 center, number radius, number damage, boolean parryable, string ownerSide)
@@ -179,6 +218,26 @@ script CombatPrimitives extends Logic
 			if isvalid(e) then
 				local p = e.TransformComponent.WorldPosition
 				if self:CircleOverlap(center, radius, Vector2(p.x, p.y), _GameConstants.RadiusEnemyHitbox) then
+					comp:TakeDamage(damage, source)
+					hitCount += 1
+				end
+			end
+		end
+		return hitCount
+	end
+
+	method integer DamageEnemiesInBox(Entity mapEntity, Vector2 boxCenter, number hw, number hh, number damage, string source)
+		-- 박스 범위 내 모든 적(script.EnemyHealth)에 데미지. 명중 수 반환. 서버 메서드에서 호출할 것.
+		if mapEntity == nil then return 0 end
+		local list = mapEntity:GetChildComponentsByTypeName("script.EnemyHealth", true)
+		local hitCount = 0
+		for _, compAny in ipairs(list) do
+			---@type EnemyHealth
+			local comp = compAny
+			local e = comp.Entity
+			if isvalid(e) then
+				local p = e.TransformComponent.WorldPosition
+				if self:BoxCircleOverlap(boxCenter, hw, hh, Vector2(p.x, p.y), _GameConstants.RadiusEnemyHitbox) then
 					comp:TakeDamage(damage, source)
 					hitCount += 1
 				end
@@ -535,6 +594,72 @@ script CombatPrimitives extends Logic
 	method Vector2 GetCursorWorldDir(Vector2 fromPos)
 		-- fromPos에서 커서를 향하는 정규화 방향 벡터 (클라 전용).
 		return self:DirectionTo(fromPos, self:GetCursorWorldPos())
+	end
+
+	@ExecSpace("ServerOnly")
+	method void BroadcastEnemyAttack(Entity sourceEntity, number id, Vector2 center, number hw, number hh, number windup, number life, boolean parryable)
+		-- 소스 적이 속한 맵의 모든 유저 클라에 공격 박스 통지(1인 1런 전제). DrawGizmo off면 미전송(클라 목록 미증가).
+		if _GameConstants.DrawGizmo == false then return end
+		if sourceEntity == nil or isvalid(sourceEntity) == false then return end
+		local map = sourceEntity.CurrentMap
+		if map == nil or isvalid(map) == false then return end
+		local users = _UserService:GetUsersByMapComponent(map.MapComponent)
+		if users == nil then return end
+		for _, u in ipairs(users) do
+			if isvalid(u) and u.PlayerComponent ~= nil then
+				self:NotifyEnemyAttack(id, center, hw, hh, windup, life, parryable, u.PlayerComponent.UserId)
+			end
+		end
+	end
+
+	@ExecSpace("ServerOnly")
+	method void BroadcastCancel(Entity mapEntity, number id)
+		-- 공격 취소(패링/그로기 폐기) 기즈모 제거를 맵 유저 클라로 통지.
+		if _GameConstants.DrawGizmo == false then return end
+		if mapEntity == nil or isvalid(mapEntity) == false then return end
+		local users = _UserService:GetUsersByMapComponent(mapEntity.MapComponent)
+		if users == nil then return end
+		for _, u in ipairs(users) do
+			if isvalid(u) and u.PlayerComponent ~= nil then
+				self:NotifyEnemyAttackCanceled(id, u.PlayerComponent.UserId)
+			end
+		end
+	end
+
+	@ExecSpace("Client")
+	method void NotifyEnemyAttack(number id, Vector2 center, number hw, number hh, number windup, number life, boolean parryable)
+		-- 클라 수신: 공격 박스 기즈모 등록(같은 id 있으면 교체). recvAt 스냅샷 후 CombatGizmo가 카운트다운.
+		-- targetUserId는 @ExecSpace("Client") 라우팅용 암묵 인자로 호출부 '마지막'에 전달 — 선언 파라미터 아님(추가 금지).
+		if self.clientEnemyAttacks == nil then self.clientEnemyAttacks = {} end
+		for i = #self.clientEnemyAttacks, 1, -1 do
+			if self.clientEnemyAttacks[i].id == id then table.remove(self.clientEnemyAttacks, i) end
+		end
+		table.insert(self.clientEnemyAttacks, {
+			id = id,
+			center = center,
+			hw = hw,
+			hh = hh,
+			parryable = parryable,
+			windup = windup,
+			life = life,
+			recvAt = _WallClock:Now(),
+		})
+	end
+
+	@ExecSpace("Client")
+	method void NotifyEnemyAttackCanceled(number id)
+		-- 클라 수신: id 공격원 기즈모 제거(패링/폐기).
+		if self.clientEnemyAttacks == nil then return end
+		for i = #self.clientEnemyAttacks, 1, -1 do
+			if self.clientEnemyAttacks[i].id == id then table.remove(self.clientEnemyAttacks, i) end
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method any GetClientEnemyAttacks()
+		-- 전투 기즈모가 폴링하는 클라 활성 공격 목록(없으면 생성).
+		if self.clientEnemyAttacks == nil then self.clientEnemyAttacks = {} end
+		return self.clientEnemyAttacks
 	end
 
 end

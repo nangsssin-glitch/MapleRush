@@ -1,13 +1,11 @@
 @Component
 script PlayerDashGizmo extends Component
 
-	-- 대시 디버그 기즈모 (MR-I; MR-D에서 게이팅/제거 대상).
-	-- PlayerDash 상태를 읽어 (1) DashBlock 불가지역 박스 외곽선, (2) 최대 사거리 원,
-	-- (3) 실제 대시 레이(발 원점→도착) + 원점/도착 점 을 그림. 빔/점/원 스프라이트 모델 재사용(새 에셋 0).
-	-- 엔티티는 PlayerBootstrap이 게이팅 스폰. 그리기 좌표는 월드 절대값으로 매 프레임 덮어써 플레이어 이동과 무관히 고정.
+	-- 대시 디버그 기즈모 '소스'(MR-I; MR-D 정리 대상). 홀더 관리/렌더는 중앙 _GizmoManager(retained-mode)에 위임 — 여기서는 기하 계산 + 의미 메서드 호출만.
+	-- (1) DashBlock 박스(:DashBlock). (2) 최대 사거리 원(:DashRange). (3) 대시 레이(:DashRay) + 원점/도착 점(:Dot).
+	-- ClientOnly·LocalPlayer 전용. 게이트 = _GameConstants.DrawGizmo. 미사용 분기에서 명시적 숨김 불필요(매니저가 프레임 시작에 전체 숨김).
 
 	@HideFromInspector property any dash = nil
-	@HideFromInspector property any nodeCache = nil
 	@HideFromInspector property string blockCacheMap = ""
 	@HideFromInspector property any blockCache = nil
 	@HideFromInspector property number shownUntil = -999.0
@@ -16,64 +14,8 @@ script PlayerDashGizmo extends Component
 	method void OnBeginPlay()
 		-- 로컬 플레이어 전용. PlayerDash 참조 캐시.
 		if self.Entity ~= _UserService.LocalPlayer then return end
-		self.nodeCache = {}
 		self.dash = self.Entity:GetComponent("script.PlayerDash")
-		log("[PlayerDashGizmo] OnBeginPlay (dash=" .. tostring(self.dash ~= nil) .. ", debug=" .. tostring(_GameConstants.DashGizmoDebug) .. ")")
-	end
-
-	@ExecSpace("ClientOnly")
-	method any Node(string name)
-		-- 이름으로 기즈모 자식 엔티티 조회(캐시; 서버 스폰 지연 대비 재시도).
-		if self.nodeCache == nil then self.nodeCache = {} end
-		local cached = self.nodeCache[name]
-		if cached ~= nil and isvalid(cached) then return cached end
-		local e = self.Entity:GetChildByName(name, false)
-		self.nodeCache[name] = e
-		return e
-	end
-
-	@ExecSpace("ClientOnly")
-	method void DrawLine(string name, number ax, number ay, number bx, number by, number thick, Color color, number z)
-		-- 빔 스프라이트를 (ax,ay)→(bx,by) 선분으로 배치/회전/스케일. 가로 스케일 = 길이/빔 자연폭.
-		local e = self:Node(name)
-		if e == nil or isvalid(e) == false then return end
-		local sr = e.SpriteRendererComponent
-		if isvalid(sr) == false then return end
-		local dx = bx - ax
-		local dy = by - ay
-		local len = math.sqrt(dx * dx + dy * dy)
-		local tf = e.TransformComponent
-		tf.WorldPosition = Vector3((ax + bx) * 0.5, (ay + by) * 0.5, z)
-		tf.WorldZRotation = math.deg(math.atan(dy, dx))
-		local sx = len / _GameConstants.DashPreviewSpriteWidth
-		if sx < 0.001 then sx = 0.001 end
-		tf.Scale = Vector3(sx, thick, 1)
-		sr.Color = color
-		sr.Enable = true
-	end
-
-	@ExecSpace("ClientOnly")
-	method void DrawDot(string name, number x, number y, Color color, number z)
-		-- 점 스프라이트를 (x,y)에 배치.
-		local e = self:Node(name)
-		if e == nil or isvalid(e) == false then return end
-		local sr = e.SpriteRendererComponent
-		if isvalid(sr) == false then return end
-		local tf = e.TransformComponent
-		tf.WorldPosition = Vector3(x, y, z)
-		local s = _GameConstants.DashGizmoDotScale
-		tf.Scale = Vector3(s, s, 1)
-		sr.Color = color
-		sr.Enable = true
-	end
-
-	@ExecSpace("ClientOnly")
-	method void Hide(string name)
-		-- 기즈모 엔티티 숨김.
-		local e = self:Node(name)
-		if e == nil or isvalid(e) == false then return end
-		local sr = e.SpriteRendererComponent
-		if isvalid(sr) then sr.Enable = false end
+		log("[PlayerDashGizmo] OnBeginPlay (dash=" .. tostring(self.dash ~= nil) .. ", draw=" .. tostring(_GameConstants.DrawGizmo) .. ")")
 	end
 
 	@ExecSpace("ClientOnly")
@@ -112,64 +54,26 @@ script PlayerDashGizmo extends Component
 	end
 
 	@ExecSpace("ClientOnly")
-	method void DrawBoxEdge(integer idx, table b, number lx1, number ly1, number lx2, number ly2, number ca, number sa, number thick, Color color, number z)
-		-- 박스 로컬 코너 (lx1,ly1)-(lx2,ly2)를 박스 각도로 회전 후 월드 선분으로 그림.
-		local ax = b.cx + (lx1 * ca - ly1 * sa)
-		local ay = b.cy + (lx1 * sa + ly1 * ca)
-		local bx = b.cx + (lx2 * ca - ly2 * sa)
-		local by = b.cy + (lx2 * sa + ly2 * ca)
-		self:DrawLine(_GameConstants.DashGizmoEdgePrefix .. tostring(idx), ax, ay, bx, by, thick, color, z)
-	end
-
-	@ExecSpace("ClientOnly")
-	method void DrawBlocks(number z)
-		-- DashBlock 박스들을 4-엣지 외곽선으로. 풀(DashGizmoMaxBlocks×4)을 넘으면 일부만 + 경고.
+	method void DrawBlocks()
+		-- DashBlock 박스를 박스당 매니저 슬롯(:DashBlock, 회전·크기는 Transform)으로. 그릴 수 있는 최대(DashGizmoMaxBlocks) 초과 시 경고 후 절단.
 		local blocks = self:BlockRegions()
+		if blocks == nil then return end
 		local maxB = _GameConstants.DashGizmoMaxBlocks
-		local edgeColor = Color(1.0, 0.25, 0.2, 0.95)
-		local thick = _GameConstants.DashGizmoEdgeThick
-		local drawn = 0
-		if blocks ~= nil then
-			local n = #blocks
-			if n > maxB then
-				log_warning("[PlayerDashGizmo] DashBlock " .. tostring(n) .. " > pool " .. tostring(maxB) .. " — 일부만 표시")
-				n = maxB
-			end
-			for i = 1, n do
-				local b = blocks[i]
-				local ca = math.cos(b.ang)
-				local sa = math.sin(b.ang)
-				local base = (i - 1) * 4
-				self:DrawBoxEdge(base + 0, b, -b.hw, b.hh, b.hw, b.hh, ca, sa, thick, edgeColor, z)
-				self:DrawBoxEdge(base + 1, b, -b.hw, -b.hh, b.hw, -b.hh, ca, sa, thick, edgeColor, z)
-				self:DrawBoxEdge(base + 2, b, -b.hw, -b.hh, -b.hw, b.hh, ca, sa, thick, edgeColor, z)
-				self:DrawBoxEdge(base + 3, b, b.hw, -b.hh, b.hw, b.hh, ca, sa, thick, edgeColor, z)
-				drawn = drawn + 1
-			end
+		local n = #blocks
+		if n > maxB then
+			log_warning("[PlayerDashGizmo] DashBlock " .. tostring(n) .. " > clamp " .. tostring(maxB) .. " — 일부만 표시")
+			n = maxB
 		end
-		for i = drawn * 4, maxB * 4 - 1 do
-			self:Hide(_GameConstants.DashGizmoEdgePrefix .. tostring(i))
+		for i = 1, n do
+			local b = blocks[i]
+			_GizmoManager:DashBlock(b.cx, b.cy, b.hw, b.hh, b.ang)
 		end
-	end
-
-	@ExecSpace("ClientOnly")
-	method void DrawRange(Vector2 center, number z)
-		-- 최대 사거리 원(기존 DashRangeCircle 엔티티 재사용)을 플레이어 중앙에 항상 표시.
-		local e = self.Entity:GetChildByName(_GameConstants.DashRangeName, false)
-		if e == nil or isvalid(e) == false then return end
-		local sr = e.SpriteRendererComponent
-		if isvalid(sr) == false then return end
-		local tf = e.TransformComponent
-		tf.WorldPosition = Vector3(center.x, center.y, z)
-		local s = (_GameConstants.DashDistance * 2.0) / _GameConstants.DashRangeSpriteWidth
-		tf.Scale = Vector3(s, s, 1)
-		sr.Enable = true
 	end
 
 	@ExecSpace("ClientOnly")
 	method void OnUpdate(number delta)
-		-- 디버그 기즈모 매 프레임 갱신.
-		if _GameConstants.DashGizmoDebug == false then return end
+		-- 디버그 기즈모 매 프레임 갱신(매니저 즉시모드 호출). 클리어는 매니저가 프레임 시작에 일괄 수행 → 여기선 그릴 것만 호출.
+		if _GameConstants.DrawGizmo == false then return end
 		if self.Entity ~= _UserService.LocalPlayer then return end
 		if self.dash == nil then
 			self.dash = self.Entity:GetComponent("script.PlayerDash")
@@ -177,21 +81,22 @@ script PlayerDashGizmo extends Component
 		end
 		---@type PlayerDash
 		local dash = self.dash
-		local pos = self.Entity.TransformComponent.WorldPosition
-		local z = pos.z
+		local tf = self.Entity.TransformComponent
+		if isvalid(tf) == false then return end
+		local pos = tf.WorldPosition
 		local foot = Vector2(pos.x, pos.y)
 		local center = Vector2(pos.x, pos.y + _GameConstants.PlayerCenterYOffset)
 
 		-- (1) DashBlock 박스 외곽선
-		self:DrawBlocks(z)
+		self:DrawBlocks()
 
-		-- (2) 최대 사거리 원
-		self:DrawRange(center, z)
+		-- (2) 최대 사거리 원(플레이어 중앙 추종, 매니저가 Transform으로 배치). 중심 마커 원(노랑 r=1)은 제거됨.
+		_GizmoManager:DashRange(center)
 
 		-- (3) 레이 + 원점/도착 점
-		local rayColor = Color(0.2, 1.0, 0.3, 0.9)
 		local oColor = Color(0.2, 0.8, 1.0, 1.0)
 		local eColor = Color(1.0, 0.9, 0.2, 1.0)
+		local dotScale = _GameConstants.DashGizmoDotScale
 		if dash.IsDashing then
 			self.shownUntil = _WallClock:Now() + _GameConstants.DashGizmoHold
 		end
@@ -202,23 +107,20 @@ script PlayerDashGizmo extends Component
 			local L = dash:ComputeDashLength(center, dir, cursor)
 			local ex = foot.x + dir.x * L
 			local ey = foot.y + dir.y * L
-			self:DrawLine(_GameConstants.DashGizmoRayName, foot.x, foot.y, ex, ey, _GameConstants.DashGizmoRayThick, rayColor, z)
-			self:DrawDot(_GameConstants.DashGizmoOriginName, foot.x, foot.y, oColor, z)
-			self:DrawDot(_GameConstants.DashGizmoEndName, ex, ey, eColor, z)
-		elseif _WallClock:Now() < self.shownUntil then
+			_GizmoManager:DashRay(Vector2(foot.x, foot.y), Vector2(ex, ey))
+			_GizmoManager:Dot(Vector2(foot.x, foot.y), oColor, dotScale)
+			_GizmoManager:Dot(Vector2(ex, ey), eColor, dotScale)
+		elseif _WallClock:Now() < self.shownUntil and dash.dashStartPos ~= nil and dash.dashDir ~= nil then
 			-- 잔상: 실제 실행된 경로 (발 원점 고정 좌표)
 			local sx = dash.dashStartPos.x
 			local sy = dash.dashStartPos.y
 			local ex = sx + dash.dashDir.x * dash.dashLen
 			local ey = sy + dash.dashDir.y * dash.dashLen
-			self:DrawLine(_GameConstants.DashGizmoRayName, sx, sy, ex, ey, _GameConstants.DashGizmoRayThick, rayColor, z)
-			self:DrawDot(_GameConstants.DashGizmoOriginName, sx, sy, oColor, z)
-			self:DrawDot(_GameConstants.DashGizmoEndName, ex, ey, eColor, z)
-		else
-			self:Hide(_GameConstants.DashGizmoRayName)
-			self:Hide(_GameConstants.DashGizmoOriginName)
-			self:Hide(_GameConstants.DashGizmoEndName)
+			_GizmoManager:DashRay(Vector2(sx, sy), Vector2(ex, ey))
+			_GizmoManager:Dot(Vector2(sx, sy), oColor, dotScale)
+			_GizmoManager:Dot(Vector2(ex, ey), eColor, dotScale)
 		end
+		-- else: 아무것도 안 그림 (매니저가 지난 프레임 사용분을 자동 숨김)
 	end
 
 end

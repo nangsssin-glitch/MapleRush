@@ -3,6 +3,9 @@ script PlayerCombat extends Component
 
 	property number lastAttackTime = -999.0
 
+	-- 마지막 평타의 커서 좌/우 방향(+1 우 / -1 좌). 클라 기즈모가 평타 박스 그릴 때 사용. @Sync 불필요(로컬 클라 내 쓰기/읽기).
+	property number lastAttackFacingX = 1
+
 	property any routerHandler = nil
 
 	@ExecSpace("ClientOnly")
@@ -54,6 +57,7 @@ script PlayerCombat extends Component
 		local dir = _CombatPrimitives:DirectionTo(Vector2(pos.x, pos.y), targetWorldPos)
 		log("[PlayerCombat] attack! dir=(" .. string.format("%.2f", dir.x) .. "," .. string.format("%.2f", dir.y) .. ")")
 		self:PlayAttackEffect(dir, pos)
+		if dir.x < 0 then self.lastAttackFacingX = -1 else self.lastAttackFacingX = 1 end
 		self:RequestAttack(dir.x, dir.y)
 	end
 
@@ -82,16 +86,16 @@ script PlayerCombat extends Component
 	method void RequestAttack(number dirX, number dirY)
 		-- 서버 권위 평타 판정: 플레이어 중심 반지름 2 원형, ATK×100% + 자동 패링 (노란 공격 무효화/투사체 반사).
 		local pos = self.Entity.TransformComponent.WorldPosition
-		local center = Vector2(pos.x, pos.y)
+		local facingX = 1
+		if dirX < 0 then facingX = -1 end
+		local f = _GameConstants.PlayerAttackBoxForward
+		local boxCenter = Vector2(pos.x + facingX * f * 0.5, pos.y + _GameConstants.PlayerCenterYOffset)
+		local hw = f * 0.5
+		local hh = _GameConstants.PlayerAttackBoxHeight * 0.5
 		local damage = _GameStateManager.AttackStat * _GameConstants.DmgAttackPct
-		local hitCount = _CombatPrimitives:DamageEnemiesInCircle(
-			self.Entity.CurrentMap,
-			center,
-			_GameConstants.RadiusAttack,
-			damage,
-			"attack")
+		local hitCount = _CombatPrimitives:DamageEnemiesInBox(self.Entity.CurrentMap, boxCenter, hw, hh, damage, "attack")
 		local reflectDamage = _GameStateManager.AttackStat * _GameConstants.DmgReflectPct
-		local parried = _CombatPrimitives:TryParry(self.Entity.CurrentMap, center, _GameConstants.RadiusAttack, reflectDamage)
+		local parried = _CombatPrimitives:TryParry(self.Entity.CurrentMap, boxCenter, hw, hh, reflectDamage)
 		log("[PlayerCombat] server attack resolved: hit=" .. tostring(hitCount) .. " parried=" .. tostring(parried) .. " dmg=" .. tostring(damage))
 	end
 

@@ -1,7 +1,7 @@
 {
   "Id": "",
   "GameId": "",
-  "EntryKey": "codeblock://a1902107-6053-44d5-b87c-959f9ae3df08",
+  "EntryKey": "codeblock://7ca55bbf-c21c-4688-8b17-fdc6516d9e10",
   "ContentType": "x-mod/codeblock",
   "Content": "",
   "Usage": 0,
@@ -22,10 +22,10 @@
         "Minor": 1
       },
       "Description": "",
-      "Id": "a1902107-6053-44d5-b87c-959f9ae3df08",
+      "Id": "7ca55bbf-c21c-4688-8b17-fdc6516d9e10",
       "Language": 1,
-      "Name": "DebugMapToggle",
-      "Type": 5,
+      "Name": "CombatGizmo",
+      "Type": 1,
       "Source": 0,
       "Target": null
     }

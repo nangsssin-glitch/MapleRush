@@ -1,7 +1,7 @@
 ---
 id: MR-S
 title: 타일맵 모드 비교 스파이크 (MapleTile vs SideViewRectTile)
-status: in-progress
+status: done
 owner: dust9826
 area: map
 touches:
@@ -11,7 +11,7 @@ touches:
 depends_on: []
 branch: ""
 created: 2026-06-19
-updated: 2026-06-19
+updated: 2026-06-20
 ---
 
 # 타일맵 모드 비교 스파이크 (MapleTile vs SideViewRectTile)
@@ -20,10 +20,10 @@ updated: 2026-06-19
 같은 월드 안에 **MapleTile(=0)** 맵과 **SideViewRectTile(=2)** 맵을 각각 하나씩 빠르게 만들어 플레이어 조작감(이동/점프/대시/전투 위치잡기)을 직접 비교한다. 멘토링/회의 전까지 두 모드를 모두 만들어 비교 자료로 쓰고, **표준 모드는 회의 후 확정**한다. 이 결정이 MR-A(맵 양산)를 가른다.
 
 ## Acceptance criteria
-- [ ] 같은 월드에 비교용 맵 2개 존재: MapleTile 1개 + SideViewRectTile 1개
-- [ ] 각 모드에서 플레이어가 정상 이동·점프·대시 (모드↔Body 매칭 정확, `[LEA-3004]`·"안 움직임" 없음)
-- [ ] 두 맵을 오가며 조작감 비교 가능 (포털/디버그 이동 등)
-- [ ] 비교 소감/장단점을 이 티켓 Notes에 기록 (회의 자료)
+- [x] 같은 월드에 비교용 맵 2개 존재: MapleTile(map01/map02) + SideViewRectTile(mapSV)
+- [x] 각 모드에서 플레이어가 정상 이동·점프·대시 (실측 검증 완료, `[LEA-3004]`·"안 움직임" 없음)
+- [x] 두 맵을 오가며 조작감 비교 가능 (F8 DebugMapToggle + 노드 선택기)
+- [x] 비교 소감/장단점 기록 + 표준 모드 확정 → 위 "최종 결론" 참조
 
 ## Subtasks
 - [x] 현행 4개 맵 TileMapMode 확인 → 전부 MapleTile(0). map01을 MapleTile 비교 대상으로 사용 (신규 제작 불필요)
@@ -33,6 +33,18 @@ updated: 2026-06-19
 - [ ] **[사용자/Maker 직후]** map B를 sector entries에 등록 + `DebugMapToggle.MapB` 인스펙터에 맵 이름 입력
 - [ ] refresh → play → 두 맵에서 이동/점프/대시 실제 조작 + `logs` 에러 확인 (DebugMapToggle 검증 동시)
 - [ ] 비교 소감(조작감 장단점) 본 Notes에 추가 → 회의에서 표준 모드 확정
+
+## 최종 결론 (2026-06-20) — 표준 모드 = **MapleTile(0)** 확정
+
+양쪽 모드를 실제로 만들어 실측 비교한 결과, **표준 모드는 MapleTile(0)로 확정**한다.
+
+- **결정 사유 = 리소스 문제.** SideViewRectTile은 `MODTileSetEntry`(`.tileset`) 팔레트가 필요한데, 메이플 타일 아트는 `MapleTileSetData`(룰타일) 계열이라 SV 타일셋으로 **그대로 재사용 불가**. SV용 타일셋을 매번 새로 구워야 해서 맵 양산(MR-A) 비용이 큼. MapleTile은 기존 메이플 풋홀드/타일 아트를 그대로 쓸 수 있음.
+- **대시 벽 정지는 터레인 충돌(풋홀드/타일 레이캐스트)에 의존하지 않고 "커스텀 논리 충돌"로 간다.** 즉 대시 거리 클램프를 **현재 방의 논리 영역(RoomRegion)** 기준으로 바꿔 맵 모드와 무관하게 만든다. → 신규 티켓 **MR-I**로 분리.
+  - 이로써 코드리뷰 finding #2(SideView 바닥-벽 오탐)·#3(center/foot)·#7(모드 분기 중복)이 한꺼번에 정리됨. `CombatPrimitives:RaycastWallDistance`는 MR-I에서 제거 가능(대시 전용 호출).
+- **레벨 authoring 구조(합의):** ① 타일 배치 → ② 몬스터 배치 → ③ 장애물/밧줄(밧줄=방 구분 + 플레이어 Body 충돌). 한 맵에 **여러 방**, 방은 직사각형이 아닐 수 있음 → 대시 경계는 방별 논리 영역(Rect 우선, 필요 시 볼록 다각형). 자세한 설계는 MR-I.
+- **스파이크 잔재 정리는 MR-D로 이관:** `MapNormal="mapSV"` 원복(+죽은 코드 수정), `NormalMapChoice` SV/MV 선택기·`NodeSelect` 비교 UI 원복, `Debug/*`·`mapSV.map`·`SVTilemap.tileset`·`SideViewArenaBuilder` 제거/보관 결정.
+
+> 비교 스파이크 목적(어느 모드로 갈지 결정) 달성 → 본 티켓 **done**. 후속 구현은 MR-I(대시)·MR-A(맵)·MR-D(정리)로 분기.
 
 ## Notes / decisions
 
