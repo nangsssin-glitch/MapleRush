@@ -1,0 +1,205 @@
+@Component
+script MetaUpgradeController extends Component
+
+	-- 화면 루트 (열기/닫기 토글) + 두 탭 리스트.
+	property Entity metaRoot = "f8b612ff-42b2-452f-af85-99b6f6f4cce7"
+
+	property Entity statList = "56c8b533-8bf4-4ef6-956f-b01e61cf17fe"
+
+	property Entity abilityList = "2eee9cb0-d941-4e1a-b8e5-29431242feca"
+
+	property TextComponent scoreText = "f5d1d0a5-879a-4d57-8b19-cb5b0a4f740e"
+
+	property ButtonComponent btnTabStat = "83b89582-06dd-4357-bb07-108e8f2b39a6"
+
+	property ButtonComponent btnTabAbility = "15220640-3fa0-4261-af1c-ef9daec841ae"
+
+	property ButtonComponent btnClose = "09092287-3869-44ea-b8a6-8b5daaf6c07b"
+
+	-- 강화 점수 (UI-우선: 데모용 목업 값. 실제 메타 점수 연동은 후속).
+	property integer mockScore = 30
+
+	property any rows = nil
+
+	property any levels = nil
+
+	property any handlers = nil
+
+	property any hTabStat = nil
+
+	property any hTabAbility = nil
+
+	property any hClose = nil
+
+	@ExecSpace("ClientOnly")
+	method void OnBeginPlay()
+		-- 행 메타(레벨 최대/요구점수) 정의 + −/+ 와이어링 + 탭 버튼 연결 + 기본 숨김.
+		self.rows = {
+			{ list = "StatList", idx = 1, max = 10, cost = 1 },
+			{ list = "StatList", idx = 2, max = 5, cost = 3 },
+			{ list = "StatList", idx = 3, max = 2, cost = 5 },
+			{ list = "StatList", idx = 4, max = 10, cost = 2 },
+			{ list = "StatList", idx = 5, max = 2, cost = 5 },
+			{ list = "AbilityList", idx = 1, max = 3, cost = 5 },
+			{ list = "AbilityList", idx = 2, max = 5, cost = 4 },
+			{ list = "AbilityList", idx = 3, max = 2, cost = 5 },
+			{ list = "AbilityList", idx = 4, max = 3, cost = 5 },
+			{ list = "AbilityList", idx = 5, max = 2, cost = 4 },
+		}
+		self.levels = {}
+		self.handlers = {}
+		for _, r in ipairs(self.rows) do
+			self.levels[r.list .. "#" .. tostring(r.idx)] = 0
+		end
+		self:WireRows()
+		self.hTabStat = self.btnTabStat.Entity:ConnectEvent(ButtonClickEvent, self.OnTabStat)
+		self.hTabAbility = self.btnTabAbility.Entity:ConnectEvent(ButtonClickEvent, self.OnTabAbility)
+		self.hClose = self.btnClose.Entity:ConnectEvent(ButtonClickEvent, self.OnCloseClick)
+		self:RefreshAll()
+		self:ShowTab("stat")
+		if isvalid(self.metaRoot) then self.metaRoot.Enable = false end
+		log("[MetaUpgradeController] ready (rows=" .. tostring(#self.rows) .. ", score=" .. tostring(self.mockScore) .. ")")
+	end
+
+	@ExecSpace("ClientOnly")
+	method void OnEndPlay()
+		-- 모든 동적 버튼 핸들러 해제.
+		if self.handlers ~= nil then
+			for _, rec in ipairs(self.handlers) do
+				if isvalid(rec.entity) then rec.entity:DisconnectEvent(ButtonClickEvent, rec.hd) end
+			end
+		end
+		if self.hTabStat ~= nil then self.btnTabStat.Entity:DisconnectEvent(ButtonClickEvent, self.hTabStat) end
+		if self.hTabAbility ~= nil then self.btnTabAbility.Entity:DisconnectEvent(ButtonClickEvent, self.hTabAbility) end
+		if self.hClose ~= nil then self.btnClose.Entity:DisconnectEvent(ButtonClickEvent, self.hClose) end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void WireRows()
+		-- 각 행의 −/+ 버튼을 경로로 찾아 클로저로 연결 (행별 key 캡처).
+		for _, r in ipairs(self.rows) do
+			local rowKey = r.list .. "#" .. tostring(r.idx)
+			local base = "/ui/MetaUpgradeGroup/Root/Window/" .. r.list .. "/Row" .. tostring(r.idx)
+			local minus = _EntityService:GetEntityByPath(base .. "/BtnMinus")
+			local plus = _EntityService:GetEntityByPath(base .. "/BtnPlus")
+			if minus ~= nil then
+				local hm = minus:ConnectEvent(ButtonClickEvent, function() self:OnAdjust(rowKey, -1) end)
+				table.insert(self.handlers, { entity = minus, hd = hm })
+			end
+			if plus ~= nil then
+				local hp = plus:ConnectEvent(ButtonClickEvent, function() self:OnAdjust(rowKey, 1) end)
+				table.insert(self.handlers, { entity = plus, hd = hp })
+			end
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void OnAdjust(string rowKey, integer delta)
+		-- 로컬 목업: + 는 점수 차감하며 레벨↑(최대까지), − 는 점수 환불하며 레벨↓.
+		local row = self:FindRow(rowKey)
+		if row == nil then return end
+		local lv = self.levels[rowKey]
+		if delta > 0 then
+			if lv >= row.max then return end
+			if self.mockScore < row.cost then
+				log("[MetaUpgradeController] not enough score for " .. rowKey)
+				return
+			end
+			self.levels[rowKey] = lv + 1
+			self.mockScore = self.mockScore - row.cost
+		else
+			if lv <= 0 then return end
+			self.levels[rowKey] = lv - 1
+			self.mockScore = self.mockScore + row.cost
+		end
+		self:SetRowLv(row)
+		self:RefreshScore()
+	end
+
+	@ExecSpace("ClientOnly")
+	method table FindRow(string rowKey)
+		-- key로 행 메타 조회.
+		for _, r in ipairs(self.rows) do
+			if r.list .. "#" .. tostring(r.idx) == rowKey then return r end
+		end
+		return nil
+	end
+
+	@ExecSpace("ClientOnly")
+	method void SetRowLv(table row)
+		-- 한 행의 "Lv x / max" 텍스트 갱신.
+		local key = row.list .. "#" .. tostring(row.idx)
+		local path = "/ui/MetaUpgradeGroup/Root/Window/" .. row.list .. "/Row" .. tostring(row.idx) .. "/LvText"
+		local e = _EntityService:GetEntityByPath(path)
+		if e ~= nil and isvalid(e.TextComponent) then
+			e.TextComponent.Text = "Lv " .. tostring(self.levels[key]) .. " / " .. tostring(row.max)
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void RefreshScore()
+		-- 상단 강화 점수 텍스트 갱신.
+		if isvalid(self.scoreText) then
+			self.scoreText.Text = "강화 점수: " .. tostring(self.mockScore)
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void RefreshAll()
+		-- 전 행 Lv + 점수 갱신.
+		for _, r in ipairs(self.rows) do
+			self:SetRowLv(r)
+		end
+		self:RefreshScore()
+	end
+
+	@ExecSpace("ClientOnly")
+	method void ShowTab(string which)
+		-- 탭 전환: 리스트 표시 토글 + 탭 버튼 활성색(빨강)/비활성색.
+		if isvalid(self.statList) then self.statList.Enable = (which == "stat") end
+		if isvalid(self.abilityList) then self.abilityList.Enable = (which == "ability") end
+		self:SetTabColor(self.btnTabStat, which == "stat")
+		self:SetTabColor(self.btnTabAbility, which == "ability")
+	end
+
+	@ExecSpace("ClientOnly")
+	method void SetTabColor(ButtonComponent btn, boolean active)
+		-- 탭 버튼 배경색 (활성=크림슨 / 비활성=다크).
+		if not isvalid(btn) then return end
+		local r = btn.Entity.SpriteGUIRendererComponent
+		if not isvalid(r) then return end
+		if active then
+			r.Color = Color(0.72, 0.18, 0.20, 1.0)
+		else
+			r.Color = Color(0.16, 0.19, 0.29, 1.0)
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void OnTabStat(ButtonClickEvent event)
+		-- 능력치 탭.
+		self:ShowTab("stat")
+	end
+
+	@ExecSpace("ClientOnly")
+	method void OnTabAbility(ButtonClickEvent event)
+		-- 능력 탭.
+		self:ShowTab("ability")
+	end
+
+	@ExecSpace("ClientOnly")
+	method void Open()
+		-- 화면 열기 (로비 하위 — 비전투 컨텍스트). 로비 버튼/스크립트에서 호출.
+		if isvalid(self.metaRoot) then self.metaRoot.Enable = true end
+		_InputRouter:SetContext("Lobby")
+		log("[MetaUpgradeController] opened")
+	end
+
+	@ExecSpace("ClientOnly")
+	method void OnCloseClick(ButtonClickEvent event)
+		-- 닫기.
+		if isvalid(self.metaRoot) then self.metaRoot.Enable = false end
+		log("[MetaUpgradeController] closed")
+	end
+
+end
