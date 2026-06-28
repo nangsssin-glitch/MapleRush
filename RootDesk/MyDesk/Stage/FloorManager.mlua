@@ -39,24 +39,31 @@ script FloorManager extends Logic
 
 	@ExecSpace("ServerOnly")
 	method void ShowThemeSelect()
-		-- 미플레이 테마만 표시 (테마1: 오르비스 확정 / 테마2: 자리표시자).
-		local theme1Used = self.usedThemes ~= nil and self.usedThemes["theme1"] == true
-		local theme2Used = self.usedThemes ~= nil and self.usedThemes["theme2"] == true
+		-- 미플레이 테마만 표시 (오르비스 / 엘나스 / 폐광 3종 중 미사용분 — 거울던전식).
+		local orbisUsed = self.usedThemes ~= nil and self.usedThemes["orbis"] == true
+		local elnathUsed = self.usedThemes ~= nil and self.usedThemes["elnath"] == true
+		local deepmineUsed = self.usedThemes ~= nil and self.usedThemes["deepmine"] == true
 		local pc = self:FirstPlayerComponent()
 		if pc ~= nil then
-			self:ClientShowThemeSelect(not theme1Used, not theme2Used, pc.UserId)
+			self:ClientShowThemeSelect(not orbisUsed, not elnathUsed, not deepmineUsed, pc.UserId)
 		end
 	end
 
 	@ExecSpace("Client")
-	method void ClientShowThemeSelect(boolean theme1Available, boolean theme2Available)
-		-- 클라: 테마 선택 팝업.
+	method void ClientShowThemeSelect(boolean orbisAvailable, boolean elnathAvailable, boolean deepmineAvailable)
+		-- 클라: 3테마 선택 팝업. UI 미등록 시 첫 가용 테마 자동 선택.
 		_InputRouter:SetContext("Node")
 		if self.themeUI ~= nil then
-			self.themeUI:Open(theme1Available, theme2Available)
+			self.themeUI:Open(orbisAvailable, elnathAvailable, deepmineAvailable)
 		else
-			log_warning("[FloorManager] themeUI not registered — auto theme1")
-			self:RequestSelectTheme("theme1")
+			log_warning("[FloorManager] themeUI not registered — auto first available")
+			if orbisAvailable then
+				self:RequestSelectTheme("orbis")
+			elseif elnathAvailable then
+				self:RequestSelectTheme("elnath")
+			else
+				self:RequestSelectTheme("deepmine")
+			end
 		end
 	end
 

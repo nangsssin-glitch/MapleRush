@@ -1,55 +1,69 @@
 @Component
 script ThemeSelectController extends Component
 
-	property Entity themeRoot = "c1d0282f-1889-487e-87d0-d487faf562b0"
+	property Entity themeRoot = "5e33e100-135f-40cd-a712-f41612d14b8c"
 
-	property TextComponent titleText = "f556b84c-6d35-4c1d-b2fa-73b1b91c306c"
+	property TextComponent titleText = "1cdd7055-665c-460d-aa45-68c3b3d9adc4"
 
-	property ButtonComponent btnTheme1 = "02b698e2-b6ba-43e1-81f5-4c4dad8d2946"
+	-- 3테마 카드 (오르비스 / 엘나스 / 폐광). 버튼 = 클릭 + Enable 토글 대상.
+	property ButtonComponent btnOrbis = "8ce13f30-c7c0-4dcd-8f4e-ee29013f6734"
 
-	property ButtonComponent btnTheme2 = "664d0f82-c3fc-4db8-8b4b-5142abdf0166"
+	property ButtonComponent btnElnath = "9827cf4c-e49f-4542-8bb5-ee341d36a2d4"
 
-	property any hTheme1 = nil
+	property ButtonComponent btnDeepmine = "cbce1a09-2dcf-4ec2-b1df-26bb63eee1e7"
 
-	property any hTheme2 = nil
+	property any hOrbis = nil
+
+	property any hElnath = nil
+
+	property any hDeepmine = nil
 
 	@ExecSpace("ClientOnly")
 	method void OnBeginPlay()
-		-- FloorManager에 등록 + 숨김 + 버튼 연결.
+		-- FloorManager에 등록 + 숨김 + 3카드 버튼 연결.
 		_FloorManager.themeUI = self
 		if isvalid(self.themeRoot) then self.themeRoot.Enable = false end
-		self.hTheme1 = self.btnTheme1.Entity:ConnectEvent(ButtonClickEvent, self.OnTheme1Click)
-		self.hTheme2 = self.btnTheme2.Entity:ConnectEvent(ButtonClickEvent, self.OnTheme2Click)
-		log("[ThemeSelectController] registered")
+		self.hOrbis = self.btnOrbis.Entity:ConnectEvent(ButtonClickEvent, self.OnOrbisClick)
+		self.hElnath = self.btnElnath.Entity:ConnectEvent(ButtonClickEvent, self.OnElnathClick)
+		self.hDeepmine = self.btnDeepmine.Entity:ConnectEvent(ButtonClickEvent, self.OnDeepmineClick)
+		log("[ThemeSelectController] registered (3 themes)")
 	end
 
 	@ExecSpace("ClientOnly")
 	method void OnEndPlay()
 		-- 버튼 해제.
-		if self.hTheme1 ~= nil then self.btnTheme1.Entity:DisconnectEvent(ButtonClickEvent, self.hTheme1) end
-		if self.hTheme2 ~= nil then self.btnTheme2.Entity:DisconnectEvent(ButtonClickEvent, self.hTheme2) end
+		if self.hOrbis ~= nil then self.btnOrbis.Entity:DisconnectEvent(ButtonClickEvent, self.hOrbis) end
+		if self.hElnath ~= nil then self.btnElnath.Entity:DisconnectEvent(ButtonClickEvent, self.hElnath) end
+		if self.hDeepmine ~= nil then self.btnDeepmine.Entity:DisconnectEvent(ButtonClickEvent, self.hDeepmine) end
 	end
 
 	@ExecSpace("ClientOnly")
-	method void Open(boolean theme1Available, boolean theme2Available)
-		-- 테마 선택 팝업: 미플레이 테마만 활성화.
+	method void Open(boolean orbisAvailable, boolean elnathAvailable, boolean deepmineAvailable)
+		-- 테마 선택 팝업: 미플레이 테마 카드만 노출(Enable 토글).
 		self.themeRoot.Enable = true
-		self.titleText.Text = tostring(_GameStateManager.CurrentFloor) .. "층 — 테마팩 선택"
-		self.btnTheme1.Entity.Enable = theme1Available
-		self.btnTheme2.Entity.Enable = theme2Available
-		log("[ThemeSelectController] opened (t1=" .. tostring(theme1Available) .. " t2=" .. tostring(theme2Available) .. ")")
+		self.titleText.Text = tostring(_GameStateManager.CurrentFloor) .. "층 — 테마 선택"
+		self.btnOrbis.Entity.Enable = orbisAvailable
+		self.btnElnath.Entity.Enable = elnathAvailable
+		self.btnDeepmine.Entity.Enable = deepmineAvailable
+		log("[ThemeSelectController] opened (orbis=" .. tostring(orbisAvailable) .. " elnath=" .. tostring(elnathAvailable) .. " deepmine=" .. tostring(deepmineAvailable) .. ")")
 	end
 
 	@ExecSpace("ClientOnly")
-	method void OnTheme1Click(ButtonClickEvent event)
-		-- 테마1 (오르비스→엘나스→폐광).
-		self:SelectTheme("theme1")
+	method void OnOrbisClick(ButtonClickEvent event)
+		-- 오르비스(천상계).
+		self:SelectTheme("orbis")
 	end
 
 	@ExecSpace("ClientOnly")
-	method void OnTheme2Click(ButtonClickEvent event)
-		-- 테마2 (자리표시자).
-		self:SelectTheme("theme2")
+	method void OnElnathClick(ButtonClickEvent event)
+		-- 엘나스(설산).
+		self:SelectTheme("elnath")
+	end
+
+	@ExecSpace("ClientOnly")
+	method void OnDeepmineClick(ButtonClickEvent event)
+		-- 폐광(갱도).
+		self:SelectTheme("deepmine")
 	end
 
 	@ExecSpace("ClientOnly")
