@@ -26,12 +26,17 @@ script GameStateManager extends Logic
 	@Sync
 	property boolean RunActive = false
 
+	-- 이번 런 누적 처치 수 (결과 화면 "처치 N" 표시).
+	@Sync
+	property integer RunKills = 0
+
 	@ExecSpace("ServerOnly")
 	method void StartRun()
 		-- 새 게임 판 시작: 런 상태 초기화 + 영구 강화 보너스 적용 (stage_design §4.5).
 		self.Meso = 0
 		self.NormalClears = 0
 		self.BossClears = 0
+		self.RunKills = 0
 		self.CurrentFloor = 1
 		self.MaxLives = _GameConstants.BaseMaxLives + _MetaProgression:GetBonusLives()
 		self.CurrentLives = self.MaxLives

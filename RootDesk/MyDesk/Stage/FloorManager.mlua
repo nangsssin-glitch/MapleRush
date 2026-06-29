@@ -87,7 +87,8 @@ script FloorManager extends Logic
 		if self.NormalsClearedThisFloor < required then
 			self.PhaseName = "normal"
 			if pc ~= nil then
-				self:ClientShowNodeSelect(self.NormalsClearedThisFloor + 1, required, pc.UserId)
+				-- 분자=현재 스테이지 번호, 분모=보스전까지 전체(일반 required + 상점 1 + 보스 1).
+				self:ClientShowNodeSelect(self.NormalsClearedThisFloor + 1, required + 2, pc.UserId)
 			end
 		elseif self.ShopDoneThisFloor == false then
 			self.PhaseName = "shop"

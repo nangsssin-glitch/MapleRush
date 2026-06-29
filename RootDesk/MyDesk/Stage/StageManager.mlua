@@ -241,6 +241,7 @@ script StageManager extends Logic
 		-- 처치 카운트. 스폰 수 == 처치 수 → 클리어 (stage_design §2.3.5).
 		if self.StageActive == false then return end
 		self.KilledCount += 1
+		_GameStateManager.RunKills += 1
 		log("[StageManager] kill " .. tostring(self.KilledCount) .. "/" .. tostring(self.SpawnedCount) .. " (" .. enemyKind .. ")")
 		if self.KilledCount >= self.SpawnedCount then
 			self:StageClear()
@@ -307,27 +308,29 @@ script StageManager extends Logic
 
 	@ExecSpace("ServerOnly")
 	method void GameOver()
-		-- 게임 오버: 런 종료 + 클라 게임오버 화면.
+		-- 게임 오버: 런 종료 + 진행도 기반 영구 강화 점수 적립 + 클라 게임오버 화면.
 		self.StageActive = false
 		_GameStateManager.RunActive = false
-		log("[StageManager] GAME OVER (normalClears=" .. tostring(_GameStateManager.NormalClears) .. ")")
+		local score = _GameStateManager.NormalClears + _GameStateManager.BossClears * 3
+		_MetaProgression:AwardScore(score)
+		log("[StageManager] GAME OVER (normalClears=" .. tostring(_GameStateManager.NormalClears) .. " score+" .. tostring(score) .. ")")
 		local map = self:GetMap()
 		local users = _UserService:GetUsersByMapComponent(map.MapComponent)
 		if users ~= nil and #users > 0 then
 			local pc = users[1].PlayerComponent
 			if pc ~= nil then
-				self:ClientShowGameOver(pc.UserId)
+				self:ClientShowGameOver(score, pc.UserId)
 			end
 		end
 	end
 
 	@ExecSpace("Client")
-	method void ClientShowGameOver()
+	method void ClientShowGameOver(integer score)
 		-- 클라: 게임오버 팝업 + 입력 차단.
 		_InputRouter:SetContext("GameOver")
 		_UtilLogic:SetClientTimeScale(1.0)
 		if self.gameOverUI ~= nil then
-			self.gameOverUI:Open()
+			self.gameOverUI:Open(score)
 		else
 			log_warning("[StageManager] gameOverUI not registered")
 		end

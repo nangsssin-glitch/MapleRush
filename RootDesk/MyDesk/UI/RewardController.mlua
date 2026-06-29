@@ -1,17 +1,23 @@
 @Component
 script RewardController extends Component
 
-	property Entity rewardRoot = "1f38b808-8dc3-4b76-9522-a00dcaafc7e1"
+	property Entity rewardRoot = "69f097c4-fad2-4832-b6bc-89654862311b"
 
-	property TextComponent mesoText = "b68d900a-4aec-4888-b9da-f3131b710cb0"
+	property TextComponent mesoText = "4037e3d7-ce47-46da-a5fd-c035801d8ebd"
 
-	property ButtonComponent btnStat = "55d01f64-70bb-48e4-a6a9-f8799123a4ff"
+	property ButtonComponent btnStat = "d693a241-fd8b-4acb-ba90-1dd7dc126eb8"
 
-	property ButtonComponent btnItem = "b31091b9-d480-4f24-b425-63eb751f5b81"
+	property ButtonComponent btnItem = "8d8c2ed3-9c4c-4221-a7f6-b776507d71f2"
 
-	property ButtonComponent btnAbility = "b8ebb68c-7808-4c29-81ba-38b97de021c3"
+	property ButtonComponent btnAbility = "9fe693d8-3503-4764-80fc-d6a81b18c631"
 
-	property ButtonComponent btnContinue = "12a848dd-26a9-4933-9d24-61972fcebef5"
+	property ButtonComponent btnContinue = "928cc48c-9ab4-47a9-89e5-fc0a3ce3096e"
+
+	property ButtonComponent btnStatDiscard = "dda070bb-b74d-4aa2-b58a-bcb5cef34ffb"
+
+	property ButtonComponent btnItemDiscard = "fa333414-b1d1-42c7-badc-9725fbcb7689"
+
+	property ButtonComponent btnAbilityDiscard = "3b1cc436-c83f-4d3d-8e21-860d2f9d9561"
 
 	property any hStat = nil
 
@@ -20,6 +26,12 @@ script RewardController extends Component
 	property any hAbility = nil
 
 	property any hContinue = nil
+
+	property any hStatDiscard = nil
+
+	property any hItemDiscard = nil
+
+	property any hAbilityDiscard = nil
 
 	@ExecSpace("ClientOnly")
 	method void OnBeginPlay()
@@ -30,6 +42,9 @@ script RewardController extends Component
 		self.hItem = self.btnItem.Entity:ConnectEvent(ButtonClickEvent, self.OnItemClick)
 		self.hAbility = self.btnAbility.Entity:ConnectEvent(ButtonClickEvent, self.OnAbilityClick)
 		self.hContinue = self.btnContinue.Entity:ConnectEvent(ButtonClickEvent, self.OnContinueClick)
+		self.hStatDiscard = self.btnStatDiscard.Entity:ConnectEvent(ButtonClickEvent, self.OnStatDiscard)
+		self.hItemDiscard = self.btnItemDiscard.Entity:ConnectEvent(ButtonClickEvent, self.OnItemDiscard)
+		self.hAbilityDiscard = self.btnAbilityDiscard.Entity:ConnectEvent(ButtonClickEvent, self.OnAbilityDiscard)
 		log("[RewardController] OnBeginPlay: registered + buttons connected")
 	end
 
@@ -40,41 +55,107 @@ script RewardController extends Component
 		if self.hItem ~= nil then self.btnItem.Entity:DisconnectEvent(ButtonClickEvent, self.hItem) end
 		if self.hAbility ~= nil then self.btnAbility.Entity:DisconnectEvent(ButtonClickEvent, self.hAbility) end
 		if self.hContinue ~= nil then self.btnContinue.Entity:DisconnectEvent(ButtonClickEvent, self.hContinue) end
+		if self.hStatDiscard ~= nil then self.btnStatDiscard.Entity:DisconnectEvent(ButtonClickEvent, self.hStatDiscard) end
+		if self.hItemDiscard ~= nil then self.btnItemDiscard.Entity:DisconnectEvent(ButtonClickEvent, self.hItemDiscard) end
+		if self.hAbilityDiscard ~= nil then self.btnAbilityDiscard.Entity:DisconnectEvent(ButtonClickEvent, self.hAbilityDiscard) end
 	end
 
 	@ExecSpace("ClientOnly")
 	method void Open(number mesoGain, boolean statReward, boolean itemReward, boolean abilityReward)
-		-- 보상 팝업 열기: 메소 표시 + 등장 보상 버튼만 활성화 (stage_design §3.1).
+		-- 보상 팝업 열기: 메소 표시 + 등장 보상의 수령/버리기 버튼만 활성화 (stage_design §3.1).
 		self.rewardRoot.Enable = true
 		self.mesoText.Text = "메소 +" .. tostring(math.floor(mesoGain)) .. "  (보유: " .. tostring(math.floor(_GameStateManager.Meso)) .. ")"
-		self.btnStat.Entity.Enable = statReward
-		self.btnItem.Entity.Enable = itemReward
-		self.btnAbility.Entity.Enable = abilityReward
+		self:SetPair(self.btnStat, self.btnStatDiscard, statReward)
+		self:SetPair(self.btnItem, self.btnItemDiscard, itemReward)
+		self:SetPair(self.btnAbility, self.btnAbilityDiscard, abilityReward)
 		log("[RewardController] opened (meso+" .. tostring(mesoGain) .. " stat=" .. tostring(statReward) .. " item=" .. tostring(itemReward) .. " ability=" .. tostring(abilityReward) .. ")")
 	end
 
 	@ExecSpace("ClientOnly")
+	method void SetPair(ButtonComponent claim, ButtonComponent discard, boolean shown)
+		-- 한 보상의 수령/버리기 버튼 노출 동시 토글.
+		claim.Entity.Enable = shown
+		discard.Entity.Enable = shown
+	end
+
+	@ExecSpace("ClientOnly")
 	method void OnStatClick(ButtonClickEvent event)
-		-- 스탯 강화 수령 → 버튼 비활성 (1회 수령).
+		-- 스탯 강화 수령 → 토스트(성공) + 수령/버리기 버튼 비활성 (1회 처리).
 		_RewardManager:ClaimStatReward()
-		self.btnStat.Entity.Enable = false
+		_UIToast:ShowMessage("스탯 강화 획득! (공격력 +2)", true)
+		self:SetPair(self.btnStat, self.btnStatDiscard, false)
 		log("[RewardController] stat claimed")
 	end
 
 	@ExecSpace("ClientOnly")
 	method void OnItemClick(ButtonClickEvent event)
-		-- 아이템 수령 → 버튼 비활성.
+		-- 아이템 수령: 가방 가득이면 수령 불가(실패 토스트, 버리기로 처리) / 빈 칸 있으면 지급.
+		if self:IsInventoryFull() then
+			_UIToast:ShowMessage("가방이 가득 찼습니다", false)
+			log("[RewardController] item claim blocked: inventory full")
+			return
+		end
 		_RewardManager:ClaimItemReward()
-		self.btnItem.Entity.Enable = false
+		_UIToast:ShowMessage("아이템 획득!", true)
+		self:SetPair(self.btnItem, self.btnItemDiscard, false)
 		log("[RewardController] item claimed")
 	end
 
 	@ExecSpace("ClientOnly")
 	method void OnAbilityClick(ButtonClickEvent event)
-		-- 능력 수령 → 버튼 비활성.
+		-- 능력 수령: 기존 능력 보유 시 '교체', 없으면 '획득' 토스트.
+		local msg = "능력 획득!"
+		if self:HasAbilityEquipped() then msg = "능력 교체!" end
 		_RewardManager:ClaimAbilityReward()
-		self.btnAbility.Entity.Enable = false
+		_UIToast:ShowMessage(msg, true)
+		self:SetPair(self.btnAbility, self.btnAbilityDiscard, false)
 		log("[RewardController] ability claimed")
+	end
+
+	@ExecSpace("ClientOnly")
+	method void OnStatDiscard(ButtonClickEvent event)
+		-- 스탯 보상 버리기: 미수령 처리 + 안내 토스트.
+		_UIToast:ShowMessage("스탯 강화 보상을 버렸습니다", false)
+		self:SetPair(self.btnStat, self.btnStatDiscard, false)
+		log("[RewardController] stat discarded")
+	end
+
+	@ExecSpace("ClientOnly")
+	method void OnItemDiscard(ButtonClickEvent event)
+		-- 아이템 보상 버리기.
+		_UIToast:ShowMessage("아이템 보상을 버렸습니다", false)
+		self:SetPair(self.btnItem, self.btnItemDiscard, false)
+		log("[RewardController] item discarded")
+	end
+
+	@ExecSpace("ClientOnly")
+	method void OnAbilityDiscard(ButtonClickEvent event)
+		-- 능력 보상 버리기 (기존 능력 유지).
+		_UIToast:ShowMessage("능력 보상을 버렸습니다", false)
+		self:SetPair(self.btnAbility, self.btnAbilityDiscard, false)
+		log("[RewardController] ability discarded")
+	end
+
+	@ExecSpace("ClientOnly")
+	method boolean IsInventoryFull()
+		-- 로컬 플레이어 아이템 슬롯 3칸이 모두 찼는지 (@Sync 슬롯 조회).
+		local player = _UserService.LocalPlayer
+		if isvalid(player) == false then return false end
+		---@type PlayerItems
+		local items = player:GetComponent("script.PlayerItems")
+		if items == nil then return false end
+		return items.Slot1 ~= "" and items.Slot2 ~= "" and items.Slot3 ~= ""
+	end
+
+	@ExecSpace("ClientOnly")
+	method boolean HasAbilityEquipped()
+		-- 로컬 플레이어가 이미 능력을 장착 중인지.
+		local player = _UserService.LocalPlayer
+		if isvalid(player) == false then return false end
+		---@type PlayerAbility
+		local ability = player:GetComponent("script.PlayerAbility")
+		if ability == nil then return false end
+		return ability.AbilityId ~= ""
 	end
 
 	@ExecSpace("ClientOnly")

@@ -10,6 +10,11 @@ script LobbyController extends Component
 
 	property ButtonComponent btnRest = "c2e314d1-0dad-426e-8feb-8af03dc5931a"
 
+	-- "능력치 강화" 버튼 → 메타 강화 화면(MetaUpgradeGroup) 오버레이 열기.
+	property ButtonComponent btnUpgrade = "1c7f5999-d5ac-4c72-8a0c-44f01c0742be"
+
+	property MetaUpgradeController metaCtrl = "6287c883-1d96-47f8-ac0a-cbabb609d0ed"
+
 	-- 설정 플레이스홀더 팝업.
 	property Entity settingsPopup = "7deada11-9fa1-47dc-abc6-3d0861446085"
 
@@ -26,6 +31,8 @@ script LobbyController extends Component
 
 	property any hRest = nil
 
+	property any hUpgrade = nil
+
 	property any hSettingsClose = nil
 
 	property any hRestOk = nil
@@ -39,6 +46,7 @@ script LobbyController extends Component
 		self.hStart = self.btnStart.Entity:ConnectEvent(ButtonClickEvent, self.OnStartClick)
 		self.hSettings = self.btnSettings.Entity:ConnectEvent(ButtonClickEvent, self.OnSettingsClick)
 		self.hRest = self.btnRest.Entity:ConnectEvent(ButtonClickEvent, self.OnRestClick)
+		self.hUpgrade = self.btnUpgrade.Entity:ConnectEvent(ButtonClickEvent, self.OnUpgradeClick)
 		self.hSettingsClose = self.btnSettingsClose.Entity:ConnectEvent(ButtonClickEvent, self.OnSettingsClose)
 		self.hRestOk = self.btnRestOk.Entity:ConnectEvent(ButtonClickEvent, self.OnRestOk)
 		_InputRouter:SetContext("Lobby")
@@ -51,6 +59,7 @@ script LobbyController extends Component
 		if self.hStart ~= nil then self.btnStart.Entity:DisconnectEvent(ButtonClickEvent, self.hStart) end
 		if self.hSettings ~= nil then self.btnSettings.Entity:DisconnectEvent(ButtonClickEvent, self.hSettings) end
 		if self.hRest ~= nil then self.btnRest.Entity:DisconnectEvent(ButtonClickEvent, self.hRest) end
+		if self.hUpgrade ~= nil then self.btnUpgrade.Entity:DisconnectEvent(ButtonClickEvent, self.hUpgrade) end
 		if self.hSettingsClose ~= nil then self.btnSettingsClose.Entity:DisconnectEvent(ButtonClickEvent, self.hSettingsClose) end
 		if self.hRestOk ~= nil then self.btnRestOk.Entity:DisconnectEvent(ButtonClickEvent, self.hRestOk) end
 	end
@@ -74,6 +83,17 @@ script LobbyController extends Component
 	method void OnSettingsClose(ButtonClickEvent event)
 		-- 설정 팝업 닫기.
 		self.settingsPopup.Enable = false
+	end
+
+	@ExecSpace("ClientOnly")
+	method void OnUpgradeClick(ButtonClickEvent event)
+		-- "능력치 강화": 메타 강화 화면을 오버레이로 열기 (로비는 뒤에 유지).
+		if isvalid(self.metaCtrl) then
+			self.metaCtrl:Open()
+			log("[LobbyController] meta upgrade opened")
+		else
+			log_error("[LobbyController] metaCtrl not bound")
+		end
 	end
 
 	@ExecSpace("ClientOnly")

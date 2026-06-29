@@ -1,13 +1,20 @@
 @Component
 script GameClearController extends Component
 
-	property Entity clearRoot = "da7245d7-43a0-4b13-9d7a-0ca1ab8a8b6e"
+	property Entity clearRoot = "eaf31109-893d-43a5-9805-62e13cc88e52"
 
-	property TextComponent infoText = "a007c8fa-ddcf-406e-8bc9-5fe10bbf943b"
+	property TextComponent statsText = "58bce7d9-40af-406d-80a4-fd91e3bdcf7d"
 
-	property ButtonComponent btnRestart = "1d3215ae-5124-44ca-a5f2-7485829822d5"
+	property TextComponent scoreText = "393a9a12-ca34-450e-9eab-140bfe2a85aa"
+
+	property ButtonComponent btnRestart = "3c34751f-5e88-4f94-a614-2516d2b81735"
+
+	-- "로비로" 버튼.
+	property ButtonComponent btnLobby = "d186d353-e683-4485-9e08-15b8d8d92f83"
 
 	property any hRestart = nil
+
+	property any hLobby = nil
 
 	@ExecSpace("ClientOnly")
 	method void OnBeginPlay()
@@ -15,6 +22,7 @@ script GameClearController extends Component
 		_FloorManager.gameClearUI = self
 		if isvalid(self.clearRoot) then self.clearRoot.Enable = false end
 		self.hRestart = self.btnRestart.Entity:ConnectEvent(ButtonClickEvent, self.OnRestartClick)
+		self.hLobby = self.btnLobby.Entity:ConnectEvent(ButtonClickEvent, self.OnLobbyClick)
 		log("[GameClearController] registered")
 	end
 
@@ -22,23 +30,35 @@ script GameClearController extends Component
 	method void OnEndPlay()
 		-- 버튼 해제.
 		if self.hRestart ~= nil then self.btnRestart.Entity:DisconnectEvent(ButtonClickEvent, self.hRestart) end
+		if self.hLobby ~= nil then self.btnLobby.Entity:DisconnectEvent(ButtonClickEvent, self.hLobby) end
 	end
 
 	@ExecSpace("ClientOnly")
 	method void Open(integer score)
-		-- 게임 클리어 팝업: 영구 강화 점수 표시.
+		-- 게임 클리어 팝업 (PDF p.14 동일 레이아웃): 도달 층 · 처치 · 메소 + 영구 강화 점수.
 		self.clearRoot.Enable = true
-		self.infoText.Text = "영구 강화 점수 +" .. tostring(score) .. " (누적 " .. tostring(_MetaProgression.MetaScore) .. ")"
+		self.statsText.Text = "도달 " .. tostring(_GameStateManager.CurrentFloor) .. "층   ·   처치 " .. tostring(_GameStateManager.RunKills) .. "   ·   메소 " .. tostring(math.floor(_GameStateManager.Meso))
+		self.scoreText.Text = "영구 강화 점수 +" .. tostring(score) .. "    (누적 " .. tostring(_MetaProgression.MetaScore) .. ")"
 		log("[GameClearController] opened (score=" .. tostring(score) .. ")")
 	end
 
 	@ExecSpace("ClientOnly")
 	method void OnRestartClick(ButtonClickEvent event)
-		-- 새 런 시작.
+		-- 다시 도전: 새 런 시작.
 		self.clearRoot.Enable = false
 		_InputRouter:SetContext("Combat")
 		_StageManager:RequestRestartRun()
 		log("[GameClearController] restart")
+	end
+
+	@ExecSpace("ClientOnly")
+	method void OnLobbyClick(ButtonClickEvent event)
+		-- 로비로: 메인 로비 복귀.
+		self.clearRoot.Enable = false
+		local lobby = _EntityService:GetEntityByPath("/ui/LobbyGroup/Root")
+		if lobby ~= nil then lobby.Enable = true end
+		_InputRouter:SetContext("Lobby")
+		log("[GameClearController] -> lobby")
 	end
 
 end
