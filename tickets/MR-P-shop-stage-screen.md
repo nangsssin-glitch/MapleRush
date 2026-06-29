@@ -1,16 +1,16 @@
 ---
 id: MR-P
 title: 상점 스테이지 화면 PDF 디자인 정비
-status: backlog
-owner: unassigned
+status: review
+owner: D4LGONA
 area: ui
 touches:
   - ui/ShopGroup.ui
   - RootDesk/MyDesk/UI/ShopController.mlua
 depends_on: []
-branch: ""
+branch: "D4LGONA/MR-P-shop-stage-screen"
 created: 2026-06-28
-updated: 2026-06-28
+updated: 2026-06-29
 ---
 
 # 상점 스테이지 화면 PDF 디자인 정비
