@@ -1,7 +1,7 @@
 ---
 id: MR-K
 title: 보스 HP·그로기 게이지 오버레이
-status: review
+status: done
 owner: D4LGONA
 area: ui
 touches:
@@ -10,7 +10,7 @@ touches:
 depends_on: []
 branch: "D4LGONA/boss-hp-groggy-overlay"
 created: 2026-06-26
-updated: 2026-06-27
+updated: 2026-06-29
 ---
 
 # 보스 HP·그로기 게이지 오버레이

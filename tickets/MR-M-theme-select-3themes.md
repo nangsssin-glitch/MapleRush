@@ -1,7 +1,7 @@
 ---
 id: MR-M
 title: 테마 선택 2→3테마 확장
-status: review
+status: done
 owner: D4LGONA
 area: mixed
 touches:
@@ -11,7 +11,7 @@ touches:
 depends_on: []
 branch: "D4LGONA/MR-M-theme-select-3themes"
 created: 2026-06-26
-updated: 2026-06-28
+updated: 2026-06-29
 ---
 
 # 테마 선택 2→3테마 확장

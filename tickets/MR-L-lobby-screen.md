@@ -1,7 +1,7 @@
 ---
 id: MR-L
 title: 로비 화면 신규 (LobbyGroup + 컨트롤러)
-status: review
+status: done
 owner: D4LGONA
 area: ui
 touches:
@@ -11,7 +11,7 @@ touches:
 depends_on: []
 branch: "D4LGONA/MR-L-lobby-screen"
 created: 2026-06-26
-updated: 2026-06-28
+updated: 2026-06-29
 ---
 
 # 로비 화면 신규
