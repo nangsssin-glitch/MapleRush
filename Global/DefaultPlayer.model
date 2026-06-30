@@ -374,8 +374,8 @@
           },
           "Value": {
             "$type": "MOD.Core.MODVector2, MOD.Core",
-            "x": 0.5,
-            "y": 0.8
+            "x": 0.218852967,
+            "y": 0.4725882
           }
         },
         {
@@ -388,7 +388,7 @@
           "Value": {
             "$type": "MOD.Core.MODVector2, MOD.Core",
             "x": 0.0,
-            "y": 0.4
+            "y": 0.342773438
           }
         },
         {
@@ -627,8 +627,8 @@
           },
           "Value": {
             "$type": "MOD.Core.MODVector2, MOD.Core",
-            "x": 0.25,
-            "y": 0.5
+            "x": 0.2442849,
+            "y": 0.506401241
           }
         },
         {
@@ -640,8 +640,8 @@
           },
           "Value": {
             "$type": "MOD.Core.MODVector2, MOD.Core",
-            "x": 0.0,
-            "y": 0.3
+            "x": -0.0087890625,
+            "y": 0.326171875
           }
         }
       ],
