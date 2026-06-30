@@ -281,9 +281,6 @@ script GameConstants extends Logic
 
 	property string BossGroggyClip = "90fee9416184420a9796a679751d1ec5"
 
-	-- 적 피격(hit) 클립 재생 윈도우 길이(초). EnemyAnimSet.HitClip 있을 때 AI가 이 동안 hit 모션 표시.
-	property number EnemyHitClipDuration = 0.25
-
 	property string TelegraphModelId = "telegraphgauge"
 
 	property string TelegraphFramePrefix = "TgFrame"
