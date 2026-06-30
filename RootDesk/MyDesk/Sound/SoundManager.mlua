@@ -9,11 +9,58 @@ script SoundManager extends Logic
 
 	property number sfxVolume = 1.0
 
+	-- 상시 UI 클릭음(좌클릭이 UI 위일 때마다). sound.csv #39.
+	property string clickSfx = "972843e759204d3e9ad84e7d3fa94f83"
+
+	property any clickHandler = nil
+
 	@ExecSpace("ClientOnly")
 	method void OnBeginPlay()
 		-- 기본 볼륨을 엔진 BGM 볼륨에 즉시 반영.
 		_SoundService:SetBGMVolume(self.bgmVolume)
+		-- 전역 좌클릭 후킹: UI 위를 클릭할 때마다 공통 클릭음. (버튼별 개별 연결 대신 단일 지점)
+		self.clickHandler = _InputService:ConnectEvent(KeyDownEvent, self.OnGlobalKeyDown)
+		-- 사용 효과음/배경음 프리로드: 첫 재생 시 클립 로딩 지연(특히 섬광 등)을 없앤다.
+		self:PreloadSounds()
 		log("[SoundManager] init bgm=" .. tostring(self.bgmVolume) .. " sfx=" .. tostring(self.sfxVolume))
+	end
+
+	@ExecSpace("ClientOnly")
+	method void PreloadSounds()
+		-- 현재 적용된 모든 효과음/배경음 RUID를 미리 로드해 첫 재생 지연을 제거.
+		local ruids = {
+			"5055db77e98c4f118f81f59390a78371",  -- 기본 공격
+			"7130b2db996b4112af59e188b609c10c",  -- 대시
+			"ee328663c4f843d4a229cf4e96cd7a11",  -- 강화 대시
+			"01f13b1930cf461ab4a327af971eccaf",  -- 슬로우 모션
+			"4ab89d1c74b9420683465cc7566b62ef",  -- 적 피격
+			"a95d1bf786f14216abae27c52bafe749",  -- 짱돌
+			"ad63f4c64f304b6c876fb68511addb87",  -- 연막
+			"04b36dbd96c94d8996f0ab3c97f718aa",  -- 섬광
+			"87e5cd16a3ba43ab994d1ee2fcbc139a",  -- 상점 구매
+			"972843e759204d3e9ad84e7d3fa94f83",  -- UI 클릭
+			"063f1dddbf8b4a1bb9067b0c7a196922",  -- 로비 BGM
+		}
+		for _, id in ipairs(ruids) do
+			_SoundService:LoadSound(id)
+		end
+		log("[SoundManager] preloaded " .. tostring(#ruids) .. " sounds")
+	end
+
+	@ExecSpace("ClientOnly")
+	method void OnEndPlay()
+		-- 전역 클릭 후킹 해제.
+		if self.clickHandler ~= nil then
+			_InputService:DisconnectEvent(KeyDownEvent, self.clickHandler)
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void OnGlobalKeyDown(KeyDownEvent event)
+		-- 좌클릭이면서 포인터가 UI 위일 때만 클릭음(월드 클릭은 무음).
+		if event.key == KeyboardKey.Mouse0 and _InputService:IsPointerOverUI() then
+			self:PlaySFX(self.clickSfx)
+		end
 	end
 
 	@ExecSpace("ClientOnly")
@@ -55,6 +102,12 @@ script SoundManager extends Logic
 		-- 배경음 재생 단일 진입점. 저장된 bgmVolume을 적용한다.
 		if ruid == nil or ruid == "" then return end
 		_SoundService:PlayBGM(ruid, self.bgmVolume)
+	end
+
+	@ExecSpace("ClientOnly")
+	method void StopBGM()
+		-- 배경음 정지(즉시 아님 — 자연 페이드).
+		_SoundService:StopBGM(false)
 	end
 
 	method number Clamp01(number v)

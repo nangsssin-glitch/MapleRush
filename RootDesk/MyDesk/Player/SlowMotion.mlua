@@ -77,6 +77,7 @@ script SlowMotion extends Logic
 	method void ClientSlowStart()
 		-- 클라: 타임스케일 0.25 + 강화 대시 1회 부여 + 지속 타이머 시작.
 		_UtilLogic:SetClientTimeScale(_GameConstants.SlowScale)
+		_SoundManager:PlaySFX("01f13b1930cf461ab4a327af971eccaf")
 		self.clientSlowActive = true
 		self.clientSlowStart = _WallClock:Now()
 		local player = _UserService.LocalPlayer

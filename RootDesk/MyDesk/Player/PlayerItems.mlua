@@ -56,6 +56,15 @@ script PlayerItems extends Component
 			local dash = self.Entity:GetComponent("script.PlayerDash")
 			if dash ~= nil and dash.IsDashing == true then return end
 			local slot = self.ActiveSlot
+			-- 아이템별 사용 효과음 (sound.csv #46/#47/#48). 슬롯은 토글 시 비어있지 않음이 보장됨.
+			local kind = self:GetSlot(slot)
+			if kind == "rock" then
+				_SoundManager:PlaySFX("a95d1bf786f14216abae27c52bafe749")
+			elseif kind == "smoke" then
+				_SoundManager:PlaySFX("ad63f4c64f304b6c876fb68511addb87")
+			elseif kind == "flash" then
+				_SoundManager:PlaySFX("04b36dbd96c94d8996f0ab3c97f718aa")
+			end
 			self.ActiveSlot = 0
 			self:RequestUseItem(slot, event.worldPos.x, event.worldPos.y)
 		end

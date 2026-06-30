@@ -285,6 +285,12 @@ script PlayerDash extends Component
 		self.IsDashing = true
 		self:StopAimPreview()
 		self:StartDashFx()
+		-- 대시 효과음: 강화/일반 구분 (sound.csv #8/#9)
+		if empowered then
+			_SoundManager:PlaySFX("ee328663c4f843d4a229cf4e96cd7a11")
+		else
+			_SoundManager:PlaySFX("7130b2db996b4112af59e188b609c10c")
+		end
 
 		-- 대시 중 입력 차단 (이동은 MovementComponent:SetWorldPosition 절대 위치 보간 — 서버로 전파되는 정식 텔레포트 채널)
 		local pc = self.Entity.PlayerControllerComponent

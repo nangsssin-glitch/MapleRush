@@ -62,6 +62,8 @@ script EnemyHealth extends Component
 		local options = {}
 		options["Alpha"] = 1.0
 		_EffectService:PlayEffect(_GameConstants.EnemyHitEffectClip, self.Entity, center, 0, Vector3(s, s, 1), false, options)
+		-- 적 피격음 (sound.csv #11). Multicast라 전 클라에서 재생.
+		_SoundManager:PlaySFX("4ab89d1c74b9420683465cc7566b62ef")
 	end
 
 end

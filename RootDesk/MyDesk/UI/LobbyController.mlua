@@ -66,6 +66,7 @@ script LobbyController extends Component
 		self.hSettingsClose = self.btnSettingsClose.Entity:ConnectEvent(ButtonClickEvent, self.OnSettingsClose)
 		self.hRestOk = self.btnRestOk.Entity:ConnectEvent(ButtonClickEvent, self.OnRestOk)
 		self:InitSoundSliders()
+		_SoundManager:PlayBGM("063f1dddbf8b4a1bb9067b0c7a196922")
 		_InputRouter:SetContext("Lobby")
 		log("[LobbyController] lobby shown (context=Lobby)")
 	end
@@ -141,6 +142,7 @@ script LobbyController extends Component
 	method void OnStartClick(ButtonClickEvent event)
 		-- "구하러 가기": 로비 숨김 → 서버에 런 시작 요청(StartRun + 1층 테마 선택 플로우).
 		self.lobbyRoot.Enable = false
+		_SoundManager:StopBGM()
 		_StageManager:RequestStartRun()
 		log("[LobbyController] start run requested")
 	end

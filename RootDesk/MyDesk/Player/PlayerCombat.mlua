@@ -57,6 +57,7 @@ script PlayerCombat extends Component
 		local dir = _CombatPrimitives:DirectionTo(Vector2(pos.x, pos.y), targetWorldPos)
 		log("[PlayerCombat] attack! dir=(" .. string.format("%.2f", dir.x) .. "," .. string.format("%.2f", dir.y) .. ")")
 		self:PlayAttackEffect(dir, pos)
+		_SoundManager:PlaySFX("5055db77e98c4f118f81f59390a78371")
 		if dir.x < 0 then self.lastAttackFacingX = -1 else self.lastAttackFacingX = 1 end
 		self:RequestAttack(dir.x, dir.y)
 	end
