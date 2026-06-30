@@ -29,14 +29,30 @@ script EnemyRanged extends Component
 
 	property string currentClip = ""
 
+	-- 엔티티별 클립셋(EnemyAnimSet, 인스펙터 편집). 없거나 미지정이면 GameConstants 폴백.
+	property any animSet = nil
+
 	@ExecSpace("ServerOnly")
 	method void OnBeginPlay()
-		-- 조준 사이클 초기화 + stand 클립 캡처.
+		-- 조준 사이클 초기화 + 클립셋 캐시 + stand 캡처(AnimSet StandClip 있으면 override).
 		self.cyclePhase = "aim"
 		self.cycleTimer = self.AimTime
+		self.animSet = self.Entity:GetComponent("script.EnemyAnimSet")
 		local sprite = self.Entity.SpriteRendererComponent
 		if isvalid(sprite) then self.standClip = sprite.SpriteRUID end
+		self.standClip = self:AnimClip("stand", self.standClip)
 		self.currentClip = self.standClip
+	end
+
+	method string AnimClip(string key, string fallback)
+		-- EnemyAnimSet에서 key 클립 조회. 컴포넌트 없거나 미지정("")이면 fallback(GameConstants).
+		if self.animSet ~= nil then
+			---@type EnemyAnimSet
+			local a = self.animSet
+			local r = a:Clip(key)
+			if r ~= "" then return r end
+		end
+		return fallback
 	end
 
 	@ExecSpace("ServerOnly")
@@ -153,9 +169,9 @@ script EnemyRanged extends Component
 
 		-- 모션: 조준(aim, 1s 캐스팅) 단계에 공격 클립 → 발사 직전까지 잘 보임. 쿨다운(발사 후)엔 move로 복귀.
 		if self.cyclePhase == "aim" then
-			self:PlayClip(_GameConstants.RangedAttackClip)
+			self:PlayClip(self:AnimClip("attack", _GameConstants.RangedAttackClip))
 		else
-			self:PlayClip(_GameConstants.RangedMoveClip)
+			self:PlayClip(self:AnimClip("move", _GameConstants.RangedMoveClip))
 		end
 	end
 

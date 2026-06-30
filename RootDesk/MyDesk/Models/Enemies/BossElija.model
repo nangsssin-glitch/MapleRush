@@ -24,7 +24,8 @@
         "script.GroggyGauge",
         "script.BossController",
         "script.EnemyHealth",
-        "MOD.Core.HitComponent"
+        "MOD.Core.HitComponent",
+        "script.EnemyAnimSet"
       ],
       "Properties": [],
       "Values": [
@@ -66,7 +67,7 @@
             "$type": "MOD.Core.MODVector3, MOD.Core",
             "x": 2.2,
             "y": 2.2,
-            "z": 1.0
+            "z": 1
           }
         },
         {
@@ -76,7 +77,7 @@
             "$type": "MODNativeType",
             "type": "System.Single, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089"
           },
-          "Value": 1.0
+          "Value": 1
         },
         {
           "TargetType": "script.EnemyHealth",
@@ -85,7 +86,7 @@
             "$type": "MODNativeType",
             "type": "System.Double, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089"
           },
-          "Value": 500.0
+          "Value": 500
         },
         {
           "TargetType": "script.EnemyHealth",
@@ -95,42 +96,6 @@
             "type": "System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089"
           },
           "Value": "boss"
-        },
-        {
-          "TargetType": "script.BossController",
-          "Name": "MoveClip",
-          "ValueType": {
-            "$type": "MODNativeType",
-            "type": "System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089"
-          },
-          "Value": "e4e1fb8384994d8890b786f7b9df93a3"
-        },
-        {
-          "TargetType": "script.BossController",
-          "Name": "AttackClip",
-          "ValueType": {
-            "$type": "MODNativeType",
-            "type": "System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089"
-          },
-          "Value": "8c933520034f4a3a8fb4163495ab714e"
-        },
-        {
-          "TargetType": "script.BossController",
-          "Name": "SkillClip",
-          "ValueType": {
-            "$type": "MODNativeType",
-            "type": "System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089"
-          },
-          "Value": "bc600b6d206849b29235b226a729e72b"
-        },
-        {
-          "TargetType": "script.BossController",
-          "Name": "GroggyClip",
-          "ValueType": {
-            "$type": "MODNativeType",
-            "type": "System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089"
-          },
-          "Value": "5ee4cd91882446e99905bea46f26e8e6"
         },
         {
           "TargetType": "script.BossController",
@@ -176,10 +141,10 @@
           },
           "Value": {
             "$type": "MOD.Core.MODQuaternion, MOD.Core",
-            "x": 0.0,
-            "y": 0.0,
-            "z": 0.0,
-            "w": 1.0
+            "x": 0,
+            "y": 0,
+            "z": 0,
+            "w": 1
           }
         },
         {
@@ -220,8 +185,8 @@
           },
           "Value": {
             "$type": "MOD.Core.MODVector2, MOD.Core",
-            "x": 0.0,
-            "y": 0.0
+            "x": 0,
+            "y": 0
           }
         },
         {
@@ -233,8 +198,8 @@
           },
           "Value": {
             "$type": "MOD.Core.MODVector2, MOD.Core",
-            "x": 0.0,
-            "y": 0.0
+            "x": 0,
+            "y": 0
           }
         },
         {
@@ -308,6 +273,42 @@
             "type": "System.Boolean, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089"
           },
           "Value": true
+        },
+        {
+          "TargetType": "script.EnemyAnimSet",
+          "Name": "MoveClip",
+          "ValueType": {
+            "$type": "MODNativeType",
+            "type": "System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089"
+          },
+          "Value": "e4e1fb8384994d8890b786f7b9df93a3"
+        },
+        {
+          "TargetType": "script.EnemyAnimSet",
+          "Name": "AttackClip",
+          "ValueType": {
+            "$type": "MODNativeType",
+            "type": "System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089"
+          },
+          "Value": "8c933520034f4a3a8fb4163495ab714e"
+        },
+        {
+          "TargetType": "script.EnemyAnimSet",
+          "Name": "SkillClip",
+          "ValueType": {
+            "$type": "MODNativeType",
+            "type": "System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089"
+          },
+          "Value": "bc600b6d206849b29235b226a729e72b"
+        },
+        {
+          "TargetType": "script.EnemyAnimSet",
+          "Name": "GroggyClip",
+          "ValueType": {
+            "$type": "MODNativeType",
+            "type": "System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089"
+          },
+          "Value": "5ee4cd91882446e99905bea46f26e8e6"
         }
       ],
       "EventLinks": [],

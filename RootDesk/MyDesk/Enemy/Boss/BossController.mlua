@@ -38,17 +38,16 @@ script BossController extends Component
 
 	property string currentClip = ""
 
-	-- 보스별 애니 클립(모델에서 주입). 비어 있으면 GameConstants 공용값으로 폴백 — 3보스 차별화용.
-	property string MoveClip = ""
-	property string AttackClip = ""
-	property string SkillClip = ""
-	property string GroggyClip = ""
+	-- 엔티티별 클립셋(EnemyAnimSet, 인스펙터 편집). 없거나 미지정이면 GameConstants 보스 공용값 폴백 — 3보스 차별화용.
+	property any animSet = nil
 
 	@ExecSpace("ServerOnly")
 	method void OnBeginPlay()
-		-- stand 클립 캡처 + 보스별 패턴 세트 구성.
+		-- 클립셋 캐시 + stand 캡처(AnimSet StandClip 있으면 override) + 보스별 패턴 세트 구성.
+		self.animSet = self.Entity:GetComponent("script.EnemyAnimSet")
 		local sprite = self.Entity.SpriteRendererComponent
 		if isvalid(sprite) then self.standClip = sprite.SpriteRUID end
+		self.standClip = self:AnimClip("stand", self.standClip)
 		self.currentClip = self.standClip
 		self.patterns = self:BuildPatterns(self.BossKind)
 		self.pendingAttacks = {}
@@ -92,9 +91,14 @@ script BossController extends Component
 		}
 	end
 
-	method string ClipOr(string own, string fallback)
-		-- 보스별 클립이 지정돼 있으면 그걸, 아니면 공용 폴백을 반환.
-		if own ~= "" then return own end
+	method string AnimClip(string key, string fallback)
+		-- EnemyAnimSet에서 key 클립 조회. 컴포넌트 없거나 미지정("")이면 fallback(GameConstants 보스 공용).
+		if self.animSet ~= nil then
+			---@type EnemyAnimSet
+			local a = self.animSet
+			local r = a:Clip(key)
+			if r ~= "" then return r end
+		end
 		return fallback
 	end
 
@@ -126,7 +130,7 @@ script BossController extends Component
 		if gg ~= nil and gg.IsGroggy == true then
 			self:CancelWindup()
 			self:StopMove()
-			self:PlayClip(self:ClipOr(self.GroggyClip, _GameConstants.BossGroggyClip))
+			self:PlayClip(self:AnimClip("groggy", _GameConstants.BossGroggyClip))
 			return
 		end
 		local timeScale = _SlowMotion:Scale()
@@ -147,7 +151,7 @@ script BossController extends Component
 		-- 추격 (패턴 윈드업 중에는 정지). 윈드업 중에는 StartPattern이 설정한 공격 모션 유지.
 		if self.phase ~= "windup" and dist > 1.8 then
 			self:ChaseToward(playerCenter.x, myCenter.x, timeScale)
-			self:PlayClip(self:ClipOr(self.MoveClip, _GameConstants.BossMoveClip))
+			self:PlayClip(self:AnimClip("move", _GameConstants.BossMoveClip))
 		elseif self.phase ~= "windup" then
 			self:StopMove()
 			self:PlayClip(self.standClip)
@@ -244,8 +248,8 @@ script BossController extends Component
 
 		if pat.cls == "box" then
 			-- 근접(노랑)=AttackClip / 광역(빨강)=SkillClip 모션.
-			local clip = self:ClipOr(self.SkillClip, _GameConstants.BossSkillClip)
-			if pat.parryable then clip = self:ClipOr(self.AttackClip, _GameConstants.BossAttackClip) end
+			local clip = self:AnimClip("skill", _GameConstants.BossSkillClip)
+			if pat.parryable then clip = self:AnimClip("attack", _GameConstants.BossAttackClip) end
 			self:PlayClip(clip)
 			if pat.mode == "forward" then
 				self:AddBox(Vector2(myCenter.x + facing * pat.hw, myCenter.y), pat.hw, pat.hh, pat.parryable, pat.windup)
@@ -272,7 +276,7 @@ script BossController extends Component
 			end
 		else
 			-- ranged: 조준 타깃 고정 + 레인 예고. 발사는 resolve.
-			self:PlayClip(self:ClipOr(self.SkillClip, _GameConstants.BossSkillClip))
+			self:PlayClip(self:AnimClip("skill", _GameConstants.BossSkillClip))
 			self.AimTargetX = playerCenter.x
 			self.AimTargetY = playerCenter.y
 			local dirX = facing

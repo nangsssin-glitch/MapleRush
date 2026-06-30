@@ -22,7 +22,8 @@
         "MOD.Core.SpriteRendererComponent",
         "MOD.Core.RigidbodyComponent",
         "script.EnemyHealth",
-        "MOD.Core.HitComponent"
+        "MOD.Core.HitComponent",
+        "script.EnemyAnimSet"
       ],
       "Properties": [],
       "Values": [

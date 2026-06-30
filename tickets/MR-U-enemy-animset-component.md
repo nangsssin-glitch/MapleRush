@@ -1,7 +1,7 @@
 ---
 id: MR-U
 title: 적 애니메이션 클립 Component화 (EnemyAnimSet — 몬스터 다양화 기반)
-status: in-progress
+status: review
 owner: dust9826
 area: mixed
 touches:
@@ -44,11 +44,13 @@ updated: 2026-06-30
 - [ ] 빌드 0에러. play 실측: 각 적 stand→move→attack 클립 스왑 정상, 보스 skill/groggy 정상.
 
 ## Subtasks
-- [ ] 1) `EnemyAnimSet.mlua` 작성 (필드 + Clip 접근자) → refresh
-- [ ] 2) AI 3종(Melee/Ranged/Boss) 클립 읽기를 EnemyAnimSet 경유 + 폴백으로 교체
-- [ ] 3) 적 모델들에 EnemyAnimSet 부착 + 기존 클립값(보스 주입/잡몹 상수) 필드로 이관 (ModelBuilder)
-- [ ] 4) BossController per-model 클립 속성 제거 정리
-- [ ] 5) play 실측(클립 스왑/다양화) + 빌드 0에러
+- [x] 1) `EnemyAnimSet.mlua` 작성 (Stand/Move/Attack/Skill/Groggy/Hit/Dead `@Sync string` + `Clip(key)` 접근자) → refresh
+- [x] 2) AI 3종(Melee/Ranged/Boss) 클립 읽기를 `AnimClip(key, fallback)`(EnemyAnimSet 경유 + GameConstants 폴백)으로 교체. stand는 OnBeginPlay에 AnimSet StandClip override.
+- [x] 3) 적 모델 7종에 EnemyAnimSet 부착. 보스 3종은 BossController 주입 클립값을 EnemyAnimSet으로 이관, 잡몹/더미는 빈셋(폴백). (ModelBuilder)
+- [x] 4) BossController per-model 클립 속성(MoveClip/AttackClip/SkillClip/GroggyClip) + ClipOr 제거 → AnimClip 통합. 보스모델 고아 값 제거.
+- [x] 5) play 실측: 빌드 0에러. 멜리=폴백 경로 / 보스(zakum)=이관값(move=429420f7…) AnimClip 정확 반환 확인. 런타임 에러 0.
+
+> ✅ 구현 완료 (review). 잔여=리뷰/머지. 잡몹 per-monster 클립은 인스펙터에서 채워 다양화(현재 빈셋=GameConstants 폴백).
 
 ## Notes / decisions
 - 🔗 MR-T(보스): BossController 클립 주입을 본 티켓이 EnemyAnimSet으로 대체. 두 티켓 touches 겹침(BossController) — MR-T PR(#22) 머지 후 진행 권장.

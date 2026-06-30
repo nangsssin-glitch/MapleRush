@@ -25,7 +25,8 @@
         "script.EnemyMelee",
         "MOD.Core.SideviewbodyComponent",
         "MOD.Core.MovementComponent",
-        "MOD.Core.HitComponent"
+        "MOD.Core.HitComponent",
+        "script.EnemyAnimSet"
       ],
       "Properties": [],
       "Values": [
@@ -72,7 +73,7 @@
             "$type": "MODNativeType",
             "type": "System.Double, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089"
           },
-          "Value": 30.0
+          "Value": 30
         },
         {
           "TargetType": "script.EnemyHealth",
@@ -118,10 +119,10 @@
           },
           "Value": {
             "$type": "MOD.Core.MODQuaternion, MOD.Core",
-            "x": 0.0,
-            "y": 0.0,
-            "z": 0.0,
-            "w": 1.0
+            "x": 0,
+            "y": 0,
+            "z": 0,
+            "w": 1
           }
         },
         {
@@ -162,8 +163,8 @@
           },
           "Value": {
             "$type": "MOD.Core.MODVector2, MOD.Core",
-            "x": 0.0,
-            "y": 0.0
+            "x": 0,
+            "y": 0
           }
         },
         {
@@ -175,8 +176,8 @@
           },
           "Value": {
             "$type": "MOD.Core.MODVector2, MOD.Core",
-            "x": 0.0,
-            "y": 0.0
+            "x": 0,
+            "y": 0
           }
         },
         {
@@ -224,8 +225,8 @@
           },
           "Value": {
             "$type": "MOD.Core.MODVector2, MOD.Core",
-            "x": 0.0,
-            "y": 0.0
+            "x": 0,
+            "y": 0
           }
         },
         {
