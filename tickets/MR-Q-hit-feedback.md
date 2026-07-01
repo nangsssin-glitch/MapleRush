@@ -1,7 +1,7 @@
 ---
 id: MR-Q
 title: 타격감 (카메라 셰이크 + 히트스톱 + 피격 경직 + 타격음)
-status: in-progress
+status: done
 owner: D4LGONA
 area: script
 touches:
@@ -49,6 +49,8 @@ updated: 2026-07-01
 - ⚠ **히트 스톱 ≠ 피격 경직**: 히트 스톱=화면 전체 시간정지(플레이어 손맛), 피격 경직=맞은 적 하나만 멈춤.
 - 타격음은 [[sound-volume-architecture]] 준수 (SoundManager.PlaySFX 경유).
 - 겹침 주의: GameConstants.mlua는 여러 티켓이 건드림(MR-F 외부화 예정) — 값 추가 시 충돌 조율.
+
+> **머지됨: PR #27 (2026-07-01).** 타격감 코어(셰이크·히트스톱·경직·타격음 훅) 완료·done. **타격음 실제 재생은 [[MR-R]] 사운드 시스템으로 이관.** 셰이크 강도 튜닝은 인스펙터에서 상시 가능.
 
 ## 남은 작업 / 미구현 / 편차 (2026-07-01 1차 구현·커밋 시점)
 
