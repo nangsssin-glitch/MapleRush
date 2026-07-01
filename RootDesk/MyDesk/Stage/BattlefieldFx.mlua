@@ -22,6 +22,9 @@ script BattlefieldFx extends Logic
 	-- 섬광 사용 시 ClientFlashFx에서 설정 → PlayerItemGizmo가 폴링해 빨강 원(대상 적) 잔상 표시.
 	@HideFromInspector property number clientFlashGizmoUntil = -999.0
 
+	-- 클라: 현재 진행 중인 연막 루프 이펙트 serial (스테이지 리셋 시 즉시 제거용).
+	@HideFromInspector property any smokeEffectSerial = nil
+
 	@ExecSpace("ServerOnly")
 	method void ActivateSmoke(Vector2 center, number duration)
 		-- 연막탄: 생성 위치 고정 은신 영역. 일반 적 감지/조준 해제 (보스 무시 — Phase 6).
@@ -39,7 +42,11 @@ script BattlefieldFx extends Logic
 		local scale = Vector3(s, s, 1)
 		local player = _UserService.LocalPlayer
 		local serial = _EffectService:PlayEffect(_GameConstants.SmokeEffectLoopClip, player, pos, 0, scale, true, {})
-		_TimerService:SetTimerOnce(function() _EffectService:RemoveEffect(serial) end, duration)
+		self.smokeEffectSerial = serial
+		_TimerService:SetTimerOnce(function()
+			_EffectService:RemoveEffect(serial)
+			if self.smokeEffectSerial == serial then self.smokeEffectSerial = nil end
+		end, duration)
 		-- 기즈모 사용-잔상: 초록 원(반경3)을 지속시간만큼 표시 (PlayerItemGizmo 폴링). WallClock 기준.
 		self.clientSmokeGizmoCenter = Vector2(cx, cy)
 		self.clientSmokeGizmoUntil = _WallClock:Now() + duration
@@ -102,10 +109,24 @@ script BattlefieldFx extends Logic
 
 	@ExecSpace("ServerOnly")
 	method void ClearAllServer()
-		-- 스테이지 전환 시 효과 정리.
+		-- 스테이지 전환 시 효과 정리. 서버 타이머 리셋 + 클라 시각효과(연막 루프 등) 즉시 제거.
 		self.smokeUntil = -999
 		self.stunUntil = -999
 		self.groggyDecayPauseUntil = -999
+		self:ClearClientFx()
+	end
+
+	@ExecSpace("Client")
+	method void ClearClientFx()
+		-- 클라: 진행 중인 연막 루프 이펙트 제거 + 기즈모 잔상(초록 연막/빨강 섬광) 종료.
+		-- 서버 타이머만 리셋하면 시각 흔적이 원래 만료 타이머까지 남으므로, 재시작 시 여기서 화면을 즉시 정리.
+		if self.smokeEffectSerial ~= nil then
+			_EffectService:RemoveEffect(self.smokeEffectSerial)
+			self.smokeEffectSerial = nil
+		end
+		self.clientSmokeGizmoUntil = -999.0
+		self.clientFlashGizmoUntil = -999.0
+		log("[BattlefieldFx] ClearClientFx: smoke/flash visuals cleared")
 	end
 
 end

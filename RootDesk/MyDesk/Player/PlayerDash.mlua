@@ -68,6 +68,17 @@ script PlayerDash extends Component
 	end
 
 	@ExecSpace("ClientOnly")
+	method void ResetForStage()
+		-- 스테이지 (재)시작 시 대시 상태 초기화: 충전 만충 + 강화 대시 플래그 해제 + 회복 앵커 리셋.
+		-- (StageManager.ClientStageReset가 플레이어 리셋 시 호출 — DashCount는 비동기 클라 전용이라 서버가 직접 못 씀.)
+		if self.Entity ~= _UserService.LocalPlayer then return end
+		self.DashCount = self.MaxDash
+		self.EmpoweredReady = false
+		self.recoverAnchor = -999.0
+		log("[PlayerDash] ResetForStage: dash refilled " .. tostring(self.DashCount) .. "/" .. tostring(self.MaxDash))
+	end
+
+	@ExecSpace("ClientOnly")
 	method void OnRouterAction(RouterActionEvent event)
 		-- dashAim(우클릭 누름) → 조준 미리보기 시작. dashExec(해제) → 미리보기 종료 + 대시 실행.
 		if event.action == "dashAim" then
