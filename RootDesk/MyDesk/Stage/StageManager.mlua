@@ -317,7 +317,8 @@ script StageManager extends Logic
 			for _, c in ipairs(self.composition) do
 				self.spawnSerial += 1
 				local name = "E" .. tostring(self.spawnSerial)
-				local e = _SpawnService:SpawnByModelId(c.model, name, Vector3(c.x, c.y, 0), map)
+				-- +SpawnYLift: 발판 아래로 미세하게 박힌 마커도 발판 위에서 스폰되게 보정 (중력이 안착시킴).
+				local e = _SpawnService:SpawnByModelId(c.model, name, Vector3(c.x, c.y + _GameConstants.SpawnYLift, 0), map)
 				if e == nil then
 					log_error("[StageManager] spawn failed: " .. c.model)
 				else

@@ -139,6 +139,11 @@ script GameConstants extends Logic
 
 	property number EnemyMoveSpeed = 1.5
 
+	-- 스폰 시 몬스터 Y를 이만큼 살짝 들어올려 스폰(방어적 보정). MapleTile foothold는 위에서만 잡으므로,
+	-- authoring 마커가 의도한 발판보다 미세하게(관측상 ~0.08) 아래로 박혀 있으면 통과→낙하한다.
+	-- 이 리프트로 항상 발판 위에서 스폰→중력이 올바른 발판에 안착. 모든 테마맵/미래 authoring 공통 적용.
+	property number SpawnYLift = 0.15
+
 	property number BossHP = 500.0
 
 	property number GroggyGaugeRatio = 0.2
