@@ -72,13 +72,19 @@ script FloorManager extends Logic
 
 	@ExecSpace("Server")
 	method void RequestSelectTheme(string themeId)
-		-- 테마 확정 → 층 시작 (노드 진행).
+		-- 테마 확정 → 테마맵 1회 진입 (도착 후 Stage 스캔 + 노드선택은 OnMapReady에서).
 		if self.usedThemes == nil then self.usedThemes = {} end
 		self.usedThemes[themeId] = true
 		self.CurrentTheme = themeId
 		self.NormalsClearedThisFloor = 0
 		self.ShopDoneThisFloor = false
 		log("[FloorManager] theme selected: " .. themeId .. " (floor " .. tostring(_GameStateManager.CurrentFloor) .. ")")
+		_StageManager:EnterMapForTheme()
+	end
+
+	@ExecSpace("ServerOnly")
+	method void OnMapReady()
+		-- StageManager가 테마맵 진입+Stage 스캔 완료 후 호출 → 노드 진행 시작.
 		self:NextNode()
 	end
 
@@ -110,18 +116,23 @@ script FloorManager extends Logic
 
 	@ExecSpace("ServerOnly")
 	method void PrepareNodeSpawns()
-		-- 노드 3분기 = 스폰포인트 3개. ★비활성(미진입) 맵을 GetEntityByPath/children로 조회하면
-		-- 엔진이 LEA-3004(PhysicsSimulator 누락) 경고를 띄우므로, 맵을 건드리지 않고 표준 스폰포인트
-		-- 이름 풀에서 3개를 무작위 선택한다. 실제 좌표는 스폰 시 ResolveSpawnPos가 활성 맵에서 해소.
-		local pool = { "SpawnPointPosition", "SpawnPointPosition_1", "SpawnPointPosition_2", "SpawnPointPosition_3", "SpawnPointPosition_4", "SpawnPointPosition_5", "SpawnPointPosition_6" }
+		-- 노드 분기 = StageManager가 스캔한 Stage 목록에서 최대 3개 무작위. (맵 active 상태 캐시라 조회 안전)
+		local order = _StageManager.stageOrder
+		local pool = {}
+		if order ~= nil then
+			for _, n in ipairs(order) do table.insert(pool, n) end
+		end
+		if #pool == 0 then table.insert(pool, "Stage1") end
 		local chosen = {}
-		for i = 1, 3 do
+		local k = #pool
+		if k > 3 then k = 3 end
+		for i = 1, k do
 			local idx = _UtilLogic:RandomIntegerRange(1, #pool)
 			table.insert(chosen, pool[idx])
 			table.remove(pool, idx)
 		end
 		self.nodeSpawnChoices = chosen
-		log("[FloorManager] node spawns: " .. chosen[1] .. " / " .. chosen[2] .. " / " .. chosen[3])
+		log("[FloorManager] node stages: " .. tostring(#chosen) .. " (first=" .. tostring(chosen[1]) .. ")")
 	end
 
 	@ExecSpace("Client")
@@ -138,15 +149,15 @@ script FloorManager extends Logic
 
 	@ExecSpace("Server")
 	method void RequestSelectNode(integer branchIdx)
-		-- 분기 선택 → 해당 스폰포인트에서 일반 스테이지 시작 (branchIdx → nodeSpawnChoices).
-		local sp = ""
+		-- 분기 선택 → 해당 Stage에서 일반 스테이지 시작 (branchIdx → nodeSpawnChoices의 Stage 이름).
+		local stageName = "Stage1"
 		if self.nodeSpawnChoices ~= nil then
 			local idx = branchIdx
 			if idx < 1 or idx > #self.nodeSpawnChoices then idx = 1 end
-			sp = self.nodeSpawnChoices[idx]
+			stageName = self.nodeSpawnChoices[idx]
 		end
-		log("[FloorManager] node branch " .. tostring(branchIdx) .. " -> normal stage sp=" .. tostring(sp))
-		_StageManager:StartStage("normal", sp)
+		log("[FloorManager] node branch " .. tostring(branchIdx) .. " -> stage " .. tostring(stageName))
+		_StageManager:StartStageAt(stageName)
 	end
 
 	@ExecSpace("Client")

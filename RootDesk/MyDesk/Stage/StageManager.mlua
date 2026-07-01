@@ -36,12 +36,24 @@ script StageManager extends Logic
 
 	property string pendingMapId = ""
 
-	-- 이번 스테이지의 실제 맵 이름 (일반=테마맵 / 보스=map03 / 상점=map04). StartStage에서 1회 확정, GetMap까지 유지.
+	-- 이번 스테이지의 실제 맵 이름 (일반=테마맵 / 보스=map03 / 상점=map04). 1회 확정, GetMap까지 유지.
 	@Sync
 	property string CurrentMapId = ""
 
-	-- 서버: 이번 스테이지 플레이어 스폰포인트 엔티티 이름 (빈값=기본 SpawnPointPosition/폴백).
-	property string pendingSpawnPoint = ""
+	-- 서버: 이번 스테이지 플레이어 스폰 월드좌표 (Stage의 SpawnPointPosition에서 산출 / 보스·상점=(0,0.3)).
+	property number curSpawnX = 0.0
+	property number curSpawnY = 0.3
+
+	-- 서버: 도착 후 동작 ("node"=Stage 스캔+노드선택 / "spawn"=ResetStage). 맵 진입 폴링용.
+	property string pendingAfterArrival = ""
+
+	-- 서버: 이번 노드에서 선택된 Stage 컨테이너 이름.
+	property string pendingStage = ""
+
+	-- 서버: 테마맵 스캔 캐시 { stageName -> {sx, sy, monsters=[{model,x,y}]} } + 순서배열 + 스캔완료 맵이름.
+	property any stageData = nil
+	property any stageOrder = nil
+	property string preppedMap = ""
 
 	@ExecSpace("ServerOnly")
 	method void OnPlayerReady(Entity player)
@@ -81,34 +93,103 @@ script StageManager extends Logic
 		local cm = player.CurrentMap
 		if cm ~= nil and isvalid(cm) and cm.Name == mapId then return end
 		player.PlayerComponent:MoveToMapPosition(mapId, Vector2(0, 0.3))
-		log("[StageManager] moving player -> " .. mapId .. " sp=" .. self.pendingSpawnPoint)
+		log("[StageManager] moving player -> " .. mapId)
 	end
 
-	method Vector2 ResolveSpawnPos(Entity map, string spName)
-		-- 맵에서 지정 스폰포인트(없으면 base SpawnPointPosition) 월드좌표. 둘 다 없으면 (0,0.3) 폴백.
-		-- @ExecSpace 없음 → 서버/클라 각자 로컬에서 호출 (엔티티 Transform 읽기뿐).
-		if map ~= nil and isvalid(map) then
-			local name = spName
-			if name == nil or name == "" then name = "SpawnPointPosition" end
-			local sp = map:GetChildByName(name, true)
-			if sp == nil or isvalid(sp) == false then
-				sp = map:GetChildByName("SpawnPointPosition", true)
-			end
-			if sp ~= nil and isvalid(sp) then
-				local p = sp.TransformComponent.WorldPosition
-				return Vector2(p.x, p.y)
+	@ExecSpace("ServerOnly")
+	method void EnterMapForTheme()
+		-- 테마 확정 후: 테마맵으로 1회 진입 → 도착 시 Stage 스캔 + 노드선택. (이미 그 맵이면 즉시 처리)
+		local mapId = _GameConstants:MapForTheme(_FloorManager.CurrentTheme)
+		self.CurrentMapId = mapId
+		self.StageType = "normal"
+		local player = self:GetPlayer()
+		local cm = nil
+		if player ~= nil then cm = player.CurrentMap end
+		if player ~= nil and cm ~= nil and isvalid(cm) and cm.Name == mapId then
+			self:PrepareStages(cm)
+			_FloorManager:OnMapReady()
+		else
+			self.pendingMapId = mapId
+			self.pendingAfterArrival = "node"
+			self.awaitingMap = true
+			self:MovePlayerToMap(mapId)
+		end
+		log("[StageManager] EnterMapForTheme -> " .. mapId)
+	end
+
+	@ExecSpace("ServerOnly")
+	method void PrepareStages(Entity map)
+		-- 테마맵 활성 상태에서 1회: Stage* 컨테이너별 (플레이어 스폰 + 몬스터 위치·종류) 캐시 후 프로토타입 전멸.
+		if map == nil or isvalid(map) == false then return end
+		if self.preppedMap == map.Name then return end
+		self.stageData = {}
+		self.stageOrder = {}
+		for _, child in ipairs(map.Children:ToTable()) do
+			local n = child.Name
+			if n ~= nil and string.sub(n, 1, 5) == "Stage" then
+				local sx = 0.0
+				local sy = 0.3
+				local sp = child:GetChildByName("SpawnPointPosition", true)
+				if sp ~= nil and isvalid(sp) then
+					local p = sp.TransformComponent.WorldPosition
+					sx = p.x
+					sy = p.y
+				end
+				local mons = {}
+				local hcs = child:GetChildComponentsByTypeName("script.EnemyHealth", true)
+				for _, hc in ipairs(hcs) do
+					local e = hc.Entity
+					if isvalid(e) then
+						local model = "meleeenemy"
+						if e:GetComponent("script.EnemyRanged") ~= nil then model = "rangedenemy" end
+						local wp = e.TransformComponent.WorldPosition
+						table.insert(mons, { model = model, x = wp.x, y = wp.y })
+					end
+				end
+				self.stageData[n] = { sx = sx, sy = sy, monsters = mons }
+				table.insert(self.stageOrder, n)
+				log("[StageManager] stage '" .. n .. "' spawn=(" .. tostring(sx) .. "," .. tostring(sy) .. ") mobs=" .. tostring(#mons))
 			end
 		end
-		return Vector2(0, 0.3)
+		-- 프로토타입(및 잔존 flat 적) 전멸 — 실제 전투 적은 캐시에서 fresh 스폰.
+		local all = map:GetChildComponentsByTypeName("script.EnemyHealth", true)
+		for _, hc in ipairs(all) do
+			if isvalid(hc.Entity) then hc.Entity:Destroy() end
+		end
+		self.preppedMap = map.Name
+		log("[StageManager] PrepareStages map=" .. map.Name .. " stages=" .. tostring(#self.stageOrder))
+	end
+
+	@ExecSpace("ServerOnly")
+	method void StartStageAt(string stageName)
+		-- 노드에서 고른 Stage로 진입 (맵 전환 없음, 이미 테마맵): 그 Stage 스폰포인트 + 몬스터 재스폰.
+		self.StageType = "normal"
+		self.StageActive = false
+		self.pendingStage = stageName
+		_GameStateManager:RefillLives()
+		local sd = nil
+		if self.stageData ~= nil then sd = self.stageData[stageName] end
+		if sd ~= nil then
+			self.composition = sd.monsters
+			self.curSpawnX = sd.sx
+			self.curSpawnY = sd.sy
+		else
+			log_warning("[StageManager] stage '" .. tostring(stageName) .. "' not cached — fallback RollComposition")
+			self.composition = self:RollComposition()
+			self.curSpawnX = 0.0
+			self.curSpawnY = 0.3
+		end
+		self:ResetStage()
+		log("[StageManager] StartStageAt " .. tostring(stageName) .. " mobs=" .. tostring(#self.composition))
 	end
 
 	@ExecSpace("ServerOnly")
 	method void StartStage(string stageType, string spawnPointName)
-		-- 새 스테이지 진입: 타입별 맵으로 플레이어 이동 → 도착 후 적 스폰 (멀티맵).
-		-- spawnPointName: 일반 스테이지는 노드에서 고른 스폰포인트, 보스/상점은 "" (기본).
+		-- 보스/상점 스테이지 진입: 전용 맵(map03/map04)으로 이동 → 도착 후 스폰. (일반 스테이지는 StartStageAt 경유)
 		self.StageType = stageType
 		self.StageActive = false
-		self.pendingSpawnPoint = spawnPointName
+		self.curSpawnX = 0.0
+		self.curSpawnY = 0.3
 		_GameStateManager:RefillLives()
 		-- 맵 결정: 일반=현재 테마 맵 / 보스=map03 / 상점=map04. 1회 확정해 GetMap까지 동일 맵 보장.
 		local mapId = ""
@@ -152,6 +233,7 @@ script StageManager extends Logic
 			self:ResetStage()
 		else
 			self.pendingMapId = mapId
+			self.pendingAfterArrival = "spawn"
 			self.awaitingMap = true
 			self:MovePlayerToMap(mapId)
 		end
@@ -168,8 +250,13 @@ script StageManager extends Logic
 		if cm == nil or isvalid(cm) == false then return end
 		if cm.Name == self.pendingMapId then
 			self.awaitingMap = false
-			log("[StageManager] player arrived at " .. self.pendingMapId .. " -> spawn")
-			self:ResetStage()
+			log("[StageManager] arrived at " .. self.pendingMapId .. " after=" .. self.pendingAfterArrival)
+			if self.pendingAfterArrival == "node" then
+				self:PrepareStages(cm)
+				_FloorManager:OnMapReady()
+			else
+				self:ResetStage()
+			end
 		end
 	end
 
@@ -246,7 +333,7 @@ script StageManager extends Logic
 			for _, u in ipairs(users) do
 				local pc = u.PlayerComponent
 				if pc ~= nil then
-					self:ClientStageReset(self.pendingSpawnPoint, pc.UserId)
+					self:ClientStageReset(self.curSpawnX, self.curSpawnY, pc.UserId)
 				end
 				---@type PlayerAbility
 				local ability = u:GetComponent("script.PlayerAbility")
@@ -274,12 +361,11 @@ script StageManager extends Logic
 	end
 
 	@ExecSpace("Client")
-	method void ClientStageReset(string spName)
-		-- 클라: 선택된 스폰포인트로 텔레포트 + 전투 컨텍스트 복귀 + 타임스케일 보정.
+	method void ClientStageReset(number sx, number sy)
+		-- 클라: 서버가 산출한 스폰 월드좌표로 텔레포트 + 전투 컨텍스트 복귀 + 타임스케일 보정.
 		local player = _UserService.LocalPlayer
 		if player ~= nil then
-			local pos = self:ResolveSpawnPos(player.CurrentMap, spName)
-			player.MovementComponent:SetWorldPosition(pos)
+			player.MovementComponent:SetWorldPosition(Vector2(sx, sy))
 		end
 		_UtilLogic:SetClientTimeScale(1.0)
 		_InputRouter:SetContext("Combat")

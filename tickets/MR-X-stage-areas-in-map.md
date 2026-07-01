@@ -1,7 +1,7 @@
 ---
 id: MR-X
 title: 맵 내 stage 구역 시스템 (노드=stage 선택 + 몬스터 마커 스폰)
-status: todo
+status: in-progress
 owner: dust9826
 area: mixed
 touches:
@@ -53,6 +53,26 @@ MR-W의 "노드 3분기 = SpawnPointPosition 선택"을 **"노드 3분기 = 맵 
 - [ ] 그 stage 몬스터가 배치 위치·종류대로 스폰, 다른 stage 몬스터는 안 나옴
 - [ ] 사망 재시작·클리어 판정 정상(기존 ResetStage 흐름)
 - [ ] 빌드 0에러, LEA-3004 등 런타임 에러 0(맵 active 상태 조회)
+
+## 구현 상태 (2026-07-01)
+- **코드 완료·라이브 검증** (StageManager/FloorManager):
+  - StageManager: `EnterMapForTheme`(테마맵 1회 진입), `PrepareStages`(활성맵에서 Stage* 스캔→{SpawnPointPosition 좌표 + 몬스터 종류·위치} 캐시 후 프로토타입 전멸), `StartStageAt`(맵전환 없이 그 Stage 스폰). 스폰포인트 이름→`curSpawnX/Y` 월드좌표, `ClientStageReset(sx,sy)` 서버 산출좌표 전달(클라 맵조회 제거). 몬스터 종류=`GetComponent("script.EnemyRanged")` 추론. Stage 미캐시 시 RollComposition 폴백.
+  - FloorManager: `RequestSelectTheme`→`EnterMapForTheme`, `OnMapReady`→NextNode, `PrepareNodeSpawns`=stageOrder에서 최대3, `RequestSelectNode`→`StartStageAt(Stage명)`.
+  - MapBuilder 경로중첩 authoring 확인됨(`empty("Stage1/SpawnPointPosition")`, `placeModel("Stage1/MeleeEnemy",...)`).
+- **검증(play, OrbisLevel 테스트 Stage1)**: PrepareStages stages=1 캐시 / StartStageAt Stage1 mobs=2 / 플레이어=Stage1 SpawnPointPosition(x=-4) 안착 / 몬스터 authored 위치·종류대로 스폰(E1 melee@2, E2 ranged@4) onGround. 빌드0에러, 내 코드 런타임에러0.
+- **잔여(=사용자 Maker authoring)**: 3 레벨맵에 실제 Stage1/2/3 컨테이너 구성(현재 flat한 MeleeEnemy×20/RangedEnemy×14 + SpawnPointPosition을 Stage 아래로 그룹핑 + Stage별 SpawnPointPosition 1개). 그 후 3맵 전체 검증.
+- ⚠ 잔존 LEA-3004(PhysicsSimulator, 맵 첫 진입 1회, 무해)는 이 흐름과 무관·별개 이월.
+
+## 규약 (Maker authoring)
+```
+{Theme}Level (map root)
+├── Stage1                    ← 컨테이너(빈 엔티티, 이름 "Stage"로 시작)
+│   ├── SpawnPointPosition    ← 그 스테이지 플레이어 스폰 (자식 1개)
+│   ├── MeleeEnemy (여러 개)   ← 실제 몹 모델 인스턴스 = 위치·종류 마커
+│   └── RangedEnemy (여러 개)
+├── Stage2 / Stage3 ...
+```
+- 런타임: 맵 진입 시 Stage*의 몬스터/스폰포인트를 캐시하고 원본 전멸 → 노드에서 Stage 선택 시 캐시 위치에 fresh 스폰. flat(비-Stage) 몬스터는 진입 시 전멸됨.
 
 ## Notes / decisions
 - 🔗 MR-W(스폰포인트 기반): 이 티켓이 stage 기반으로 확장. 스폰포인트 이름 풀 로직은 stage 열거로 대체.
