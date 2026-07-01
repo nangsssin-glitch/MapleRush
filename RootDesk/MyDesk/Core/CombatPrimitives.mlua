@@ -68,6 +68,14 @@ script CombatPrimitives extends Logic
 		return self:CircleOverlap(rec.center, rec.radius, circleCenter, r)
 	end
 
+	method boolean RecordOverlapsBox(table rec, Vector2 boxCenter, number hw, number hh)
+		-- 공격 레코드 vs 박스 디스패처(피격자=박스 hurtbox). box 레코드=박스-박스 / circle 레코드=박스-원.
+		if rec.shape == "box" then
+			return self:BoxBoxOverlap(rec.center, rec.hw, rec.hh, boxCenter, hw, hh)
+		end
+		return self:BoxCircleOverlap(boxCenter, hw, hh, rec.center, rec.radius)
+	end
+
 	@ExecSpace("ServerOnly")
 	method boolean AnyThreatNear(Entity mapEntity, Vector2 center, number radius)
 		-- 슬로우 모션 트리거 판정: 활성 적 공격 레코드 또는 적 투사체가 radius 내 존재하는지 (서버).
@@ -99,23 +107,32 @@ script CombatPrimitives extends Logic
 	method integer TryParry(Entity mapEntity, Vector2 boxCenter, number hw, number hh, number reflectDamage)
 		-- 평타 판정 박스와 겹치는 parryable 공격 처리: 근접 공격 무효화 / 투사체 반사(ATK×200%). 반환: 패링 수.
 		local count = 0
+		-- 근접 패링 윈도우(§1.4): 명중시점 hitAt 기준 선행 Lead·후행 Trail 안에서만 성립. now/hitAt 모두 ServerElapsedSeconds.
+		local now = _UtilLogic.ServerElapsedSeconds
+		local parryLead = _GameConstants.ParryWindowLead
+		local parryTrail = _GameConstants.ParryWindowTrail
 		if self.activeAttacks ~= nil then
 			for _, rec in ipairs(self.activeAttacks) do
 				if rec.canceled == false and rec.parryable and self:BoxBoxOverlap(boxCenter, hw, hh, rec.center, rec.hw, rec.hh) then
-					rec.canceled = true
-					count += 1
-					self:BroadcastCancel(mapEntity, rec.id)
-					log("[CombatPrimitives] melee attack PARRIED (id=" .. tostring(rec.id) .. ")")
-					-- 보스 근거리 패링: 그로기 게이지 즉시 (ATK×100%)×2 충전 (stage_design §1.4.2)
-					if rec.bossEntityId ~= nil and mapEntity ~= nil then
-						local bossEntity = mapEntity:GetChildByName(rec.bossEntityId, true)
-						if isvalid(bossEntity) then
-							---@type GroggyGauge
-							local gg = bossEntity:GetComponent("script.GroggyGauge")
-							if gg ~= nil then
-								gg:Charge(_GameStateManager.AttackStat * _GameConstants.GroggyParryMult, "parry")
+					if now >= rec.hitAt - parryLead and now <= rec.hitAt + parryTrail then
+						rec.canceled = true
+						count += 1
+						self:BroadcastCancel(mapEntity, rec.id)
+						log("[CombatPrimitives] melee attack PARRIED (id=" .. tostring(rec.id) .. ", dt=" .. tostring(now - rec.hitAt) .. ")")
+						-- 보스 근거리 패링: 그로기 게이지 즉시 (ATK×100%)×2 충전 (stage_design §1.4.2)
+						if rec.bossEntityId ~= nil and mapEntity ~= nil then
+							local bossEntity = mapEntity:GetChildByName(rec.bossEntityId, true)
+							if isvalid(bossEntity) then
+								---@type GroggyGauge
+								local gg = bossEntity:GetComponent("script.GroggyGauge")
+								if gg ~= nil then
+									gg:Charge(_GameStateManager.AttackStat * _GameConstants.GroggyParryMult, "parry")
+								end
 							end
 						end
+					else
+						-- 윈도우 밖(너무 이르거나 늦음) → 패링 미성립. 공격은 그대로 진행(회피 필요).
+						log("[CombatPrimitives] melee parry MISTIMED (id=" .. tostring(rec.id) .. ", dt=" .. tostring(now - rec.hitAt) .. ")")
 					end
 				end
 			end
@@ -167,6 +184,22 @@ script CombatPrimitives extends Logic
 		return math.abs(aCenter.x - bCenter.x) <= (aHw + bHw) and math.abs(aCenter.y - bCenter.y) <= (aHh + bHh)
 	end
 
+	method any HurtboxOf(Entity e, number fbHW, number fbHH, number fbYOff)
+		-- 엔티티 hurtbox 박스 {cx,cy,hw,hh}. HitComponent(Box) 있으면 BoxSize×Scale + ColliderOffset 사용(=Maker 인스펙터에서 편집).
+		-- 없으면 폴백: 반폭/반높이=상수, 중심=transform 좌표 + fbYOff(적=0 raw / 플레이어=PlayerCenterYOffset 0.5).
+		-- 적 모델엔 HitComponent 있음. 플레이어(DefaultPlayer=Global)는 Maker에서 수동 추가 시 인스펙터 편집, 없으면 폴백 상수.
+		local p = e.TransformComponent.WorldPosition
+		local hc = e.HitComponent
+		if isvalid(hc) and hc.BoxSize.x > 0 and hc.BoxSize.y > 0 then
+			local sc = e.TransformComponent.Scale
+			local bs = hc.BoxSize
+			local off = hc.ColliderOffset
+			-- 반폭/반높이는 절대값(몬스터 좌우반전 = Scale.x 음수여도 박스 크기는 양수 유지). 중심 오프셋은 부호 유지(반전 시 미러).
+			return { cx = p.x + off.x * sc.x, cy = p.y + off.y * sc.y, hw = bs.x * math.abs(sc.x) * 0.5, hh = bs.y * math.abs(sc.y) * 0.5 }
+		end
+		return { cx = p.x, cy = p.y + fbYOff, hw = fbHW, hh = fbHH }
+	end
+
 	method table MakeAttack(Vector2 center, number radius, number damage, boolean parryable, string ownerSide)
 		-- 공통 공격 데이터 구조 (F5). 플레이어/적/투사체/아이템 공격 전부 이 구조로 표현.
 		return {
@@ -206,6 +239,24 @@ script CombatPrimitives extends Logic
 		return math.sqrt(dx * dx + dy * dy)
 	end
 
+	method boolean SegmentBoxOverlap(Vector2 segStart, Vector2 segEnd, Vector2 boxCenter, number hw, number hh, number radius)
+		-- 선분+반경(캡슐) vs AABB 박스. 박스 중심에 가장 가까운 선분 위 점을 구해 그 점(반경 radius 원)이 박스와 겹치는지로 근사.
+		-- (얇은 대시 경로엔 충분. 정확한 코너 케이스는 무시 — 박스 hurtbox 통일용.)
+		local vx = segEnd.x - segStart.x
+		local vy = segEnd.y - segStart.y
+		local wx = boxCenter.x - segStart.x
+		local wy = boxCenter.y - segStart.y
+		local lenSq = vx * vx + vy * vy
+		local t = 0.0
+		if lenSq > 0 then
+			t = (wx * vx + wy * vy) / lenSq
+			if t < 0 then t = 0 elseif t > 1 then t = 1 end
+		end
+		local cx = segStart.x + vx * t
+		local cy = segStart.y + vy * t
+		return self:BoxCircleOverlap(boxCenter, hw, hh, Vector2(cx, cy), radius)
+	end
+
 	method integer DamageEnemiesInCircle(Entity mapEntity, Vector2 center, number radius, number damage, string source)
 		-- 원형 범위 내 모든 적(script.EnemyHealth)에 데미지. 명중 수 반환. 서버 메서드에서 호출할 것.
 		if mapEntity == nil then return 0 end
@@ -216,8 +267,8 @@ script CombatPrimitives extends Logic
 			local comp = compAny
 			local e = comp.Entity
 			if isvalid(e) then
-				local p = e.TransformComponent.WorldPosition
-				if self:CircleOverlap(center, radius, Vector2(p.x, p.y), _GameConstants.RadiusEnemyHitbox) then
+				local hb = self:HurtboxOf(e, _GameConstants.EnemyHboxHW, _GameConstants.EnemyHboxHH, 0)
+				if self:BoxCircleOverlap(Vector2(hb.cx, hb.cy), hb.hw, hb.hh, center, radius) then
 					comp:TakeDamage(damage, source)
 					hitCount += 1
 				end
@@ -236,8 +287,8 @@ script CombatPrimitives extends Logic
 			local comp = compAny
 			local e = comp.Entity
 			if isvalid(e) then
-				local p = e.TransformComponent.WorldPosition
-				if self:BoxCircleOverlap(boxCenter, hw, hh, Vector2(p.x, p.y), _GameConstants.RadiusEnemyHitbox) then
+				local hb = self:HurtboxOf(e, _GameConstants.EnemyHboxHW, _GameConstants.EnemyHboxHH, 0)
+				if self:BoxBoxOverlap(boxCenter, hw, hh, Vector2(hb.cx, hb.cy), hb.hw, hb.hh) then
 					comp:TakeDamage(damage, source)
 					hitCount += 1
 				end
@@ -256,9 +307,8 @@ script CombatPrimitives extends Logic
 			local comp = compAny
 			local e = comp.Entity
 			if isvalid(e) then
-				local p = e.TransformComponent.WorldPosition
-				local dist = self:PointSegmentDistance(Vector2(p.x, p.y), pathStart, pathEnd)
-				if dist <= pathRadius + _GameConstants.RadiusEnemyHitbox then
+				local hb = self:HurtboxOf(e, _GameConstants.EnemyHboxHW, _GameConstants.EnemyHboxHH, 0)
+				if self:SegmentBoxOverlap(pathStart, pathEnd, Vector2(hb.cx, hb.cy), hb.hw, hb.hh, pathRadius) then
 					comp:TakeDamage(damage, source)
 					hitCount += 1
 				end

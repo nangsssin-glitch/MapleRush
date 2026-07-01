@@ -1,7 +1,7 @@
 ---
 id: MR-J
 title: 게임 HUD 요소 바인딩 (목숨/대시/아이템/능력/메소)
-status: review
+status: done
 owner: D4LGONA
 area: ui
 touches:
@@ -10,7 +10,7 @@ touches:
 depends_on: []
 branch: "D4LGONA/hud-element-binding"
 created: 2026-06-26
-updated: 2026-06-27
+updated: 2026-06-29
 ---
 
 # 게임 HUD 요소 바인딩

@@ -1,0 +1,33 @@
+@Component
+script EnemyAnimSet extends Component
+
+	-- 적 애니메이션 클립 셋(엔티티별, Maker 인스펙터 편집). Pattern A(직접 SpriteRUID 스왑)용 클립 RUID 모음.
+	-- 빈 문자열 = 미지정 → 호출부(AI)가 GameConstants 또는 모델 기본 idle로 폴백. 같은 종류라도 모델마다 다른 클립 지정 = 몬스터 다양화.
+	-- idle: 비우면 모델 기본 SpriteRUID 사용(AI가 OnBeginPlay에 캡처). run/attack=공통, skill/groggy=보스용, hit/die=피격·사망.
+	@Sync property string IdleClip = ""
+
+	@Sync property string RunClip = ""
+
+	@Sync property string AttackClip = ""
+
+	@Sync property string SkillClip = ""
+
+	@Sync property string GroggyClip = ""
+
+	@Sync property string HitClip = ""
+
+	@Sync property string DieClip = ""
+
+	method string Clip(string key)
+		-- 상태 키 → 클립 RUID(딕셔너리식 접근). 미지정이면 "" 반환(호출부가 폴백 처리).
+		if key == "idle" then return self.IdleClip end
+		if key == "run" then return self.RunClip end
+		if key == "attack" then return self.AttackClip end
+		if key == "skill" then return self.SkillClip end
+		if key == "groggy" then return self.GroggyClip end
+		if key == "hit" then return self.HitClip end
+		if key == "die" then return self.DieClip end
+		return ""
+	end
+
+end

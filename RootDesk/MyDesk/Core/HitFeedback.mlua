@@ -1,0 +1,93 @@
+@Logic
+script HitFeedback extends Logic
+
+	-- ===== 기획자 튜닝 값 (인스펙터에서 코드 없이 조정 — hit_feedback_design_doc §3) =====
+	@DisplayName("셰이크 강도")
+	@Description("타격 시 카메라 흔들림 세기. 기획서 시작값 0.15는 지각 한계 이하로 거의 안 보여 체감 가능한 1.0으로 상향. 실제 플레이로 '거슬리지 않는 최소치'까지 조정.")
+	property number ShakeIntensity = 1.0
+
+	@DisplayName("셰이크 지속(초)")
+	@Description("카메라 흔들림 지속 시간. 총 발동시간(0.1초)과 동일하게 즉시 복귀.")
+	property number ShakeDuration = 0.10
+
+	@DisplayName("히트스톱 배율")
+	@Description("타격 순간 화면 전체 시간 배율. 0에 가까울수록 강한 정지. 0은 업데이트 정지 위험 → 0.02~0.1 권장.")
+	property number HitStopScale = 0.05
+
+	@DisplayName("히트스톱 지속(초)")
+	@Description("화면 정지 지속 시간. 0.1초 구간 내, 너무 길면 답답함.")
+	property number HitStopDuration = 0.05
+
+	@DisplayName("피격 경직(초)")
+	@Description("맞은 적이 그 자리에서 멈추는 시간(넉백 없음). 일반 적에만 적용(보스 제외).")
+	property number EnemyStunDuration = 0.10
+
+	@DisplayName("타격음 RUID")
+	@Description("비우면 재생하지 않음. 사운드 에셋 지정 시 RUID 입력.")
+	property string HitSfxId = ""
+
+	@DisplayName("타격음 볼륨")
+	property number HitSfxVolume = 1.0
+
+	@DisplayName("연출 최소 간격(초)")
+	@Description("다중 타격(광역/연타) 시 셰이크·히트스톱이 누적돼 화면이 멀미나는 것 방지. 이 간격 내 추가 타격은 연출 1회로 합침.")
+	property number MinInterval = 0.04
+
+	-- ===== 클라 런타임 상태 =====
+	@HideFromInspector
+	property number lastFeelAt = -999.0
+
+	@HideFromInspector
+	property boolean hitStopActive = false
+
+	@HideFromInspector
+	property number hitStopStart = -999.0
+
+	@ExecSpace("ServerOnly")
+	method void OnEnemyHit(Entity enemyEntity)
+		-- 서버: 적 피격 시 전 클라에 타격감 연출 브로드캐스트. (경직은 EnemyHealth가 자체 세팅)
+		self:PlayFeel()
+	end
+
+	@ExecSpace("Multicast")
+	method void PlayFeel()
+		-- 전 클라 타격감: 카메라 셰이크 + 히트스톱 + 타격음. 다중 타격 누적 방지(MinInterval 내 1회로 합침).
+		local now = _WallClock:Now()
+		if now - self.lastFeelAt < self.MinInterval then return end
+		self.lastFeelAt = now
+		-- 카메라 셰이크
+		local cam = _CameraService:GetCurrentCameraComponent()
+		if isvalid(cam) then
+			cam:ShakeCamera(self.ShakeIntensity, self.ShakeDuration)
+		end
+		-- 타격음 (에셋 미지정 시 생략)
+		if self.HitSfxId ~= "" then
+			_SoundService:PlaySound(self.HitSfxId, self.HitSfxVolume)
+		end
+		-- 히트스톱: 슬로우모션 중엔 생략 (전역 타임스케일 소유권 충돌 방지 — SlowMotion이 0.25x 유지 중)
+		if _SlowMotion.clientSlowActive == false then
+			self.hitStopActive = true
+			self.hitStopStart = now
+			_UtilLogic:SetClientTimeScale(self.HitStopScale)
+			log("[HitFeedback] hit feel (shake=" .. tostring(self.ShakeIntensity) .. " hitstop=" .. tostring(self.HitStopScale) .. "x)")
+		else
+			log("[HitFeedback] hit feel (shake only — slowmo active, hitstop skipped)")
+		end
+	end
+
+	method void OnUpdate(number delta)
+		-- 클라: 히트스톱 만료 복귀. WallClock(실시간)은 타임스케일 영향을 받지 않아 정지 중에도 정확히 복귀 (★정상 속도 복귀 최우선).
+		if self:IsServer() then return end
+		if self.hitStopActive and _WallClock:IsExpired(self.hitStopStart, self.HitStopDuration) then
+			self.hitStopActive = false
+			-- 복귀 대상: 그 사이 슬로우모션이 시작됐으면 슬로우 배율, 아니면 정상(1.0).
+			if _SlowMotion.clientSlowActive then
+				_UtilLogic:SetClientTimeScale(_GameConstants.SlowScale)
+			else
+				_UtilLogic:SetClientTimeScale(1.0)
+			end
+			log("[HitFeedback] hitstop restored")
+		end
+	end
+
+end

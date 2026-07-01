@@ -14,6 +14,9 @@ script FloorManager extends Logic
 	-- 서버: 사용된 테마 (게임 판 단위)
 	property any usedThemes = nil
 
+	-- 서버: 이번 노드 선택의 분기별 스폰포인트 이름 [branch1, branch2, branch3] (테마맵에서 3개 추출)
+	property any nodeSpawnChoices = nil
+
 	@Sync
 	property string CurrentTheme = ""
 
@@ -69,13 +72,19 @@ script FloorManager extends Logic
 
 	@ExecSpace("Server")
 	method void RequestSelectTheme(string themeId)
-		-- 테마 확정 → 층 시작 (노드 진행).
+		-- 테마 확정 → 테마맵 1회 진입 (도착 후 Stage 스캔 + 노드선택은 OnMapReady에서).
 		if self.usedThemes == nil then self.usedThemes = {} end
 		self.usedThemes[themeId] = true
 		self.CurrentTheme = themeId
 		self.NormalsClearedThisFloor = 0
 		self.ShopDoneThisFloor = false
 		log("[FloorManager] theme selected: " .. themeId .. " (floor " .. tostring(_GameStateManager.CurrentFloor) .. ")")
+		_StageManager:EnterMapForTheme()
+	end
+
+	@ExecSpace("ServerOnly")
+	method void OnMapReady()
+		-- StageManager가 테마맵 진입+Stage 스캔 완료 후 호출 → 노드 진행 시작.
 		self:NextNode()
 	end
 
@@ -86,21 +95,44 @@ script FloorManager extends Logic
 		local pc = self:FirstPlayerComponent()
 		if self.NormalsClearedThisFloor < required then
 			self.PhaseName = "normal"
+			-- 노드 3분기 = 테마맵의 스폰포인트 3개 추출 (branchIdx → 스폰포인트).
+			self:PrepareNodeSpawns()
 			if pc ~= nil then
 				-- 분자=현재 스테이지 번호, 분모=보스전까지 전체(일반 required + 상점 1 + 보스 1).
 				self:ClientShowNodeSelect(self.NormalsClearedThisFloor + 1, required + 2, pc.UserId)
 			end
 		elseif self.ShopDoneThisFloor == false then
 			self.PhaseName = "shop"
-			_StageManager:StartStage("shop")
+			_StageManager:StartStage("shop", "")
 			if pc ~= nil then
 				self:ClientShowShop(pc.UserId)
 			end
 		else
 			self.PhaseName = "boss"
 			log("[FloorManager] BOSS node (floor " .. tostring(_GameStateManager.CurrentFloor) .. ")")
-			_StageManager:StartStage("boss")
+			_StageManager:StartStage("boss", "")
 		end
+	end
+
+	@ExecSpace("ServerOnly")
+	method void PrepareNodeSpawns()
+		-- 노드 분기 = StageManager가 스캔한 Stage 목록에서 최대 3개 무작위. (맵 active 상태 캐시라 조회 안전)
+		local order = _StageManager.stageOrder
+		local pool = {}
+		if order ~= nil then
+			for _, n in ipairs(order) do table.insert(pool, n) end
+		end
+		if #pool == 0 then table.insert(pool, "Stage1") end
+		local chosen = {}
+		local k = #pool
+		if k > 3 then k = 3 end
+		for i = 1, k do
+			local idx = _UtilLogic:RandomIntegerRange(1, #pool)
+			table.insert(chosen, pool[idx])
+			table.remove(pool, idx)
+		end
+		self.nodeSpawnChoices = chosen
+		log("[FloorManager] node stages: " .. tostring(#chosen) .. " (first=" .. tostring(chosen[1]) .. ")")
 	end
 
 	@ExecSpace("Client")
@@ -117,9 +149,15 @@ script FloorManager extends Logic
 
 	@ExecSpace("Server")
 	method void RequestSelectNode(integer branchIdx)
-		-- 분기 선택 → 일반 스테이지 시작. (현재 3분기 전부 일반 스테이지 — 임시 구현)
-		log("[FloorManager] node branch " .. tostring(branchIdx) .. " -> normal stage")
-		_StageManager:StartStage("normal")
+		-- 분기 선택 → 해당 Stage에서 일반 스테이지 시작 (branchIdx → nodeSpawnChoices의 Stage 이름).
+		local stageName = "Stage1"
+		if self.nodeSpawnChoices ~= nil then
+			local idx = branchIdx
+			if idx < 1 or idx > #self.nodeSpawnChoices then idx = 1 end
+			stageName = self.nodeSpawnChoices[idx]
+		end
+		log("[FloorManager] node branch " .. tostring(branchIdx) .. " -> stage " .. tostring(stageName))
+		_StageManager:StartStageAt(stageName)
 	end
 
 	@ExecSpace("Client")
@@ -140,6 +178,20 @@ script FloorManager extends Logic
 		self.ShopDoneThisFloor = true
 		log("[FloorManager] shop left -> boss node")
 		self:NextNode()
+	end
+
+	@ExecSpace("Server")
+	method void DebugWarpBoss()
+		-- [치트] 숫자키 6 → 현재 층 보스 스테이지로 즉시 점프 (테스트용; NextNode의 보스 분기와 동일). CheatMode 가드.
+		if _GameConstants.CheatMode == false then return end
+		if _GameStateManager.RunActive == false then
+			log_warning("[FloorManager] DebugWarpBoss ignored — run not active")
+			return
+		end
+		self.ShopDoneThisFloor = true
+		self.PhaseName = "boss"
+		log("[FloorManager] CHEAT warp -> BOSS (floor " .. tostring(_GameStateManager.CurrentFloor) .. ")")
+		_StageManager:StartStage("boss", "")
 	end
 
 	@ExecSpace("ServerOnly")

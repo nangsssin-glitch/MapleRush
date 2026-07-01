@@ -1,0 +1,23 @@
+{
+  "Id": "",
+  "GameId": "",
+  "EntryKey": "sprite://aee3e0292fd345ca9685f6d32db88e32",
+  "ContentType": "x-mod/sprite",
+  "Content": "",
+  "Usage": 0,
+  "UsePublish": 1,
+  "UseService": 0,
+  "CoreVersion": "26.5.0.0",
+  "StudioVersion": "0.1.0.0",
+  "DynamicLoading": 0,
+  "ContentProto": {
+    "Use": "Json",
+    "Json": {
+      "upload_keyname": "2e/f1/2ef11c337a5443babce1e805c717ecbc/sprite/aee3e0292fd345ca9685f6d32db88e32/639184199275225125",
+      "upload_hash": "B4BF3FCFBB7A1A26EE35FE3776A0C215DD21F8E99A78CE14D10AF9A948049C90",
+      "name": "stand1",
+      "resource_guid": "aee3e0292fd345ca9685f6d32db88e32",
+      "resource_version": "6a43b8d7a43134e1b8a480bc"
+    }
+  }
+}

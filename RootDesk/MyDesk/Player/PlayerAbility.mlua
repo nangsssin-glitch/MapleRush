@@ -38,6 +38,10 @@ script PlayerAbility extends Component
 		elseif event.action == "debugGrantClear" then
 			self:DebugGrant("clearProjectiles")
 			return
+		elseif event.action == "debugWarpBoss" then
+			-- [치트] 숫자키 6 → 보스 스테이지 직행 (서버 RPC, CheatMode 가드).
+			_FloorManager:DebugWarpBoss()
+			return
 		end
 		-- ability 액션(휠클릭) → 사용 요청. 미보유/소진 시 무시 (UI 피드백은 Phase 8).
 		if event.action ~= "ability" then return end

@@ -11,13 +11,13 @@ script GizmoManager extends Logic
 	--     매 프레임은 **Transform만** 바꿔 배치한다. Points는 bake 후 절대 재변경하지 않는다.
 	--
 	-- 고정 슬롯 레이아웃(인덱스→역할; 총 GizmoLinePoolSize=62):
-	--   0 사거리원(cyan, r=DashDistance)         1 플레이어피격원(green, r=0.5)  2 대시레이(green, 단위선분)
+	--   0 사거리원(cyan, r=DashDistance)         1 플레이어피격박스(green, PlayerHbox)  2 대시레이(green, 단위선분)
 	--   3~5 블록박스(red, 단위정사각)            6 평타플래시박스(cyan, 단위정사각)
 	--   7~14 투사체원(orange, r=RadiusProjectile, ×8)
 	--   15~20 적공격박스 노랑(unit, ×6)          21~26 적공격박스 빨강(unit, ×6)
-	--   27~34 원거리레인박스 노랑(unit, ×8)      35~46 적피격원 마젠타(r=RadiusEnemyHitbox, ×12)
+	--   27~34 원거리레인박스 노랑(unit, ×8)      35~46 적피격박스 마젠타(EnemyHbox, ×12)
 	--   [아이템 범위] 47 연막조준(노랑 사각 ±SmokeBoxHalf)  48 연막사용(초록 사각 ±SmokeBoxHalf)
-	--   49 짱돌조준(노랑 단위정사각 OBB 레인)      50~55 섬광조준(노랑 원 r=RadiusEnemyHitbox ×6)  56~61 섬광사용(빨강 원 ×6)
+	--   49 짱돌조준(노랑 단위정사각 OBB 레인)      50~55 섬광조준(노랑 박스 EnemyHbox ×6)  56~61 섬광사용(빨강 박스 ×6)
 	-- 단위 원/정사각은 매 프레임 Scale로 반지름/크기 적용(폭이 Scale 따라 변할 수 있음 — transient라 허용). 실반지름 bake 원은 Scale=1.
 	--
 	-- LineRenderer 렌더 규칙(실측): 맵 자식이라야 렌더(플레이어 자식이면 안 보임) / MaterialId는 모델 주입(빈값이면 안 그려짐;
@@ -231,8 +231,8 @@ script GizmoManager extends Logic
 		local cw = _GameConstants.GizmoCombatWidth
 		-- 대시
 		self:BakeCircle(self.IdxRange, _GameConstants.DashDistance, Color(0.3, 0.8, 1.0, 0.95), lw)
-		-- slot 1: 플레이어 피격원(실제 판정 r=0.5, green). 매 프레임 플레이어 중심 추종.
-		self:BakeCircle(self.IdxPlayerHbox, 0.5, Color(0.4, 1.0, 0.4, 0.75), cw)
+		-- slot 1: 플레이어 피격박스(실제 판정 PlayerHbox, green). 단위정사각 bake → 매 프레임 PlaceBoxAABB로 치수 적용.
+		self:BakeSquare(self.IdxPlayerHbox, Color(0.4, 1.0, 0.4, 0.75), cw)
 		self:BakeSegment(self.IdxRay, Color(0.2, 1.0, 0.3, 0.9), rw)
 		local bi = 0
 		while bi < self.BlockCount do
@@ -257,10 +257,10 @@ script GizmoManager extends Logic
 			self:BakeSquare(self.LaneStart + li, Color(1.0, 0.9, 0.2, 0.85), cw)
 			li = li + 1
 		end
-		-- 적 피격원(실반지름 RadiusEnemyHitbox, magenta). 가변 풀.
+		-- 적 피격박스(단위정사각 bake → PlaceBoxAABB로 EnemyHbox 치수, magenta). 가변 풀.
 		local ei = 0
 		while ei < self.EHboxCount do
-			self:BakeCircle(self.EHboxStart + ei, _GameConstants.RadiusEnemyHitbox, Color(1.0, 0.25, 0.8, 0.75), cw)
+			self:BakeSquare(self.EHboxStart + ei, Color(1.0, 0.25, 0.8, 0.75), cw)
 			ei = ei + 1
 		end
 		-- 아이템 범위: 연막 조준(노랑)/사용(초록) 원 r=RadiusSmoke, 짱돌 조준 레인(노랑 단위정사각), 섬광 조준(노랑)/사용(빨강) 적 원.
@@ -272,8 +272,8 @@ script GizmoManager extends Logic
 		self:BakeSquare(self.IdxItemRockAim, yellow, cw)
 		local fi = 0
 		while fi < self.ItemFlashCount do
-			self:BakeCircle(self.ItemFlashAimStart + fi, _GameConstants.RadiusEnemyHitbox, yellow, cw)
-			self:BakeCircle(self.ItemFlashActiveStart + fi, _GameConstants.RadiusEnemyHitbox, red, cw)
+			self:BakeSquare(self.ItemFlashAimStart + fi, yellow, cw)
+			self:BakeSquare(self.ItemFlashActiveStart + fi, red, cw)
 			fi = fi + 1
 		end
 		log("[GizmoManager] baked " .. tostring(self.poolSize) .. " line holders (retained static Points)")
@@ -404,9 +404,9 @@ script GizmoManager extends Logic
 	end
 
 	@ExecSpace("ClientOnly")
-	method void PlayerHurtbox(Vector2 center)
-		-- 플레이어 피격원(r=0.5 고정 슬롯). 매 프레임 플레이어 중심 추종 — 적 공격 박스/투사체와 겹치면 피격.
-		self:PlaceFixed(self.IdxPlayerHbox, center.x, center.y)
+	method void PlayerHurtbox(Vector2 center, number hw, number hh)
+		-- 플레이어 피격박스(고정 슬롯). 치수(hw/hh)는 소스(CombatGizmo)가 HurtboxOf로 산출해 전달 — 판정과 동일 소스(HitComponent 또는 폴백 상수).
+		self:PlaceBoxAABB(self.IdxPlayerHbox, center.x, center.y, hw, hh)
 	end
 
 	@ExecSpace("ClientOnly")
@@ -470,15 +470,15 @@ script GizmoManager extends Logic
 	end
 
 	@ExecSpace("ClientOnly")
-	method void EnemyHurtbox(Vector2 center)
-		-- 적 피격원(magenta, r=RadiusEnemyHitbox). 적 transform raw 좌표(=실제 판정 중심) 추종, 피격원 풀 커서.
+	method void EnemyHurtbox(Vector2 center, number hw, number hh)
+		-- 적 피격박스(magenta). 치수(hw/hh)는 소스(CombatGizmo)가 HurtboxOf로 산출해 전달 — 판정과 동일 소스(HitComponent.BoxSize 또는 폴백).
 		if self.ehboxCursor >= self.EHboxCount then
 			self:WarnOverflow("ehbox")
 			return
 		end
 		local idx = self.EHboxStart + self.ehboxCursor
 		self.ehboxCursor = self.ehboxCursor + 1
-		self:PlaceFixed(idx, center.x, center.y)
+		self:PlaceBoxAABB(idx, center.x, center.y, hw, hh)
 	end
 
 	@ExecSpace("ClientOnly")
@@ -603,7 +603,7 @@ script GizmoManager extends Logic
 		end
 		local idx = self.ItemFlashAimStart + self.itemFlashAimCursor
 		self.itemFlashAimCursor = self.itemFlashAimCursor + 1
-		self:PlaceFixed(idx, center.x, center.y)
+		self:PlaceBoxAABB(idx, center.x, center.y, _GameConstants.EnemyHboxHW, _GameConstants.EnemyHboxHH)
 	end
 
 	@ExecSpace("ClientOnly")
@@ -615,7 +615,7 @@ script GizmoManager extends Logic
 		end
 		local idx = self.ItemFlashActiveStart + self.itemFlashActiveCursor
 		self.itemFlashActiveCursor = self.itemFlashActiveCursor + 1
-		self:PlaceFixed(idx, center.x, center.y)
+		self:PlaceBoxAABB(idx, center.x, center.y, _GameConstants.EnemyHboxHW, _GameConstants.EnemyHboxHH)
 	end
 
 end

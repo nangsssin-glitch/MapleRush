@@ -1,0 +1,89 @@
+@Logic
+script TelegraphService extends Logic
+
+	-- 예고 게이지(텔레그래프) 모듈의 공개 API + 서버→클라 데이터 채널. (boss_design_doc §1.5)
+	-- 전투 코드는 이 두 메서드만 안다: Show(...) → 정수 id 반환 / Hide(id). 렌더링·풀·좌표는 TelegraphRenderer가 캡슐화.
+	-- CombatPrimitives(판정) / GizmoManager(디버그)와 완전 독립 — 상시 on(디버그 게이트 없음).
+	--
+	-- kind 의미:
+	--   "box"    근접·광역. center=박스 중심, hw/hh=반폭/반높이. 필=아래→위 수직 차오름, 프레임=풀박스. dir 무시.
+	--   "ranged" 원거리(투사체). center=보스 중심(원점), hw=레인 반길이(=발사축), hh=레인 반폭, dir=발사 단위방향.
+	--            필=원점→바깥(dir축) 차오름, 프레임=레인 풀박스.
+	-- parryable: true=노랑(근접/원거리), false=빨강(광역 회피전용). 클라가 색 결정.
+
+	property integer nextId = 0
+
+	-- 클라 활성 텔레그래프 목록. 항목 {id,center,hw,hh,windup,parryable,kind,dirX,dirY,recvAt}. 렌더러가 폴링·보간.
+	property any clientList = nil
+
+	@ExecSpace("ServerOnly")
+	method integer Show(Entity sourceEntity, Vector2 center, number hw, number hh, number windup, boolean parryable, string kind, number dirX, number dirY)
+		-- 예고 게이지 1개 표시 요청(서버). 고유 id 반환 — 호출부가 보관했다 Hide에 사용. 소스 적이 속한 맵의 모든 유저 클라에 통지.
+		self.nextId += 1
+		local id = self.nextId
+		if sourceEntity == nil or isvalid(sourceEntity) == false then return id end
+		local map = sourceEntity.CurrentMap
+		if map == nil or isvalid(map) == false then return id end
+		local users = _UserService:GetUsersByMapComponent(map.MapComponent)
+		if users == nil then return id end
+		for _, u in ipairs(users) do
+			if isvalid(u) and u.PlayerComponent ~= nil then
+				self:NotifyShow(id, center, hw, hh, windup, parryable, kind, dirX, dirY, u.PlayerComponent.UserId)
+			end
+		end
+		return id
+	end
+
+	@ExecSpace("ServerOnly")
+	method void Hide(Entity mapEntity, integer id)
+		-- 예고 게이지 제거(resolve/사망/그로기/그레이스). 맵 유저 클라로 통지. id<=0 이면 무시(미생성 가드).
+		if id <= 0 then return end
+		if mapEntity == nil or isvalid(mapEntity) == false then return end
+		local users = _UserService:GetUsersByMapComponent(mapEntity.MapComponent)
+		if users == nil then return end
+		for _, u in ipairs(users) do
+			if isvalid(u) and u.PlayerComponent ~= nil then
+				self:NotifyHide(id, u.PlayerComponent.UserId)
+			end
+		end
+	end
+
+	@ExecSpace("Client")
+	method void NotifyShow(integer id, Vector2 center, number hw, number hh, number windup, boolean parryable, string kind, number dirX, number dirY)
+		-- 클라 수신: 활성 목록에 추가(같은 id 있으면 교체). recvAt 스냅샷 후 렌더러가 progress 보간.
+		-- targetUserId는 @ExecSpace("Client") 라우팅용 암묵 인자(호출부 마지막) — 선언 파라미터 아님(추가 금지).
+		if self.clientList == nil then self.clientList = {} end
+		for i = #self.clientList, 1, -1 do
+			if self.clientList[i].id == id then table.remove(self.clientList, i) end
+		end
+		table.insert(self.clientList, {
+			id = id,
+			center = center,
+			hw = hw,
+			hh = hh,
+			windup = windup,
+			parryable = parryable,
+			kind = kind,
+			dirX = dirX,
+			dirY = dirY,
+			recvAt = _WallClock:Now(),
+		})
+	end
+
+	@ExecSpace("Client")
+	method void NotifyHide(integer id)
+		-- 클라 수신: id 게이지 제거.
+		if self.clientList == nil then return end
+		for i = #self.clientList, 1, -1 do
+			if self.clientList[i].id == id then table.remove(self.clientList, i) end
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method any GetClientList()
+		-- 렌더러가 매 프레임 폴링하는 클라 활성 목록(없으면 생성).
+		if self.clientList == nil then self.clientList = {} end
+		return self.clientList
+	end
+
+end

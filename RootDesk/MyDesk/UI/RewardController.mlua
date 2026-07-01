@@ -19,6 +19,12 @@ script RewardController extends Component
 
 	property ButtonComponent btnAbilityDiscard = "3b1cc436-c83f-4d3d-8e21-860d2f9d9561"
 
+	property Entity confirmRoot = "48f0ae29-0be7-432c-ad55-5ea47a88fdba"
+
+	property ButtonComponent btnConfirmYes = "d055d71b-6a2d-4c9b-9cda-6260bc6ea4c8"
+
+	property ButtonComponent btnConfirmNo = "38e09b30-588e-4143-a0f5-ef47767f4cfc"
+
 	property any hStat = nil
 
 	property any hItem = nil
@@ -33,11 +39,16 @@ script RewardController extends Component
 
 	property any hAbilityDiscard = nil
 
+	property any hConfirmYes = nil
+
+	property any hConfirmNo = nil
+
 	@ExecSpace("ClientOnly")
 	method void OnBeginPlay()
 		-- StageManager에 자신을 등록 + 패널 숨김 + 버튼 연결.
 		_StageManager.rewardUI = self
 		if isvalid(self.rewardRoot) then self.rewardRoot.Enable = false end
+		if isvalid(self.confirmRoot) then self.confirmRoot.Enable = false end
 		self.hStat = self.btnStat.Entity:ConnectEvent(ButtonClickEvent, self.OnStatClick)
 		self.hItem = self.btnItem.Entity:ConnectEvent(ButtonClickEvent, self.OnItemClick)
 		self.hAbility = self.btnAbility.Entity:ConnectEvent(ButtonClickEvent, self.OnAbilityClick)
@@ -45,6 +56,8 @@ script RewardController extends Component
 		self.hStatDiscard = self.btnStatDiscard.Entity:ConnectEvent(ButtonClickEvent, self.OnStatDiscard)
 		self.hItemDiscard = self.btnItemDiscard.Entity:ConnectEvent(ButtonClickEvent, self.OnItemDiscard)
 		self.hAbilityDiscard = self.btnAbilityDiscard.Entity:ConnectEvent(ButtonClickEvent, self.OnAbilityDiscard)
+		self.hConfirmYes = self.btnConfirmYes.Entity:ConnectEvent(ButtonClickEvent, self.OnConfirmYes)
+		self.hConfirmNo = self.btnConfirmNo.Entity:ConnectEvent(ButtonClickEvent, self.OnConfirmNo)
 		log("[RewardController] OnBeginPlay: registered + buttons connected")
 	end
 
@@ -58,6 +71,8 @@ script RewardController extends Component
 		if self.hStatDiscard ~= nil then self.btnStatDiscard.Entity:DisconnectEvent(ButtonClickEvent, self.hStatDiscard) end
 		if self.hItemDiscard ~= nil then self.btnItemDiscard.Entity:DisconnectEvent(ButtonClickEvent, self.hItemDiscard) end
 		if self.hAbilityDiscard ~= nil then self.btnAbilityDiscard.Entity:DisconnectEvent(ButtonClickEvent, self.hAbilityDiscard) end
+		if self.hConfirmYes ~= nil then self.btnConfirmYes.Entity:DisconnectEvent(ButtonClickEvent, self.hConfirmYes) end
+		if self.hConfirmNo ~= nil then self.btnConfirmNo.Entity:DisconnectEvent(ButtonClickEvent, self.hConfirmNo) end
 	end
 
 	@ExecSpace("ClientOnly")
@@ -159,8 +174,39 @@ script RewardController extends Component
 	end
 
 	@ExecSpace("ClientOnly")
+	method boolean HasUnclaimedReward()
+		-- 아직 수령/버리기 처리하지 않은 보상이 남았는지 (수령 버튼이 아직 활성 = 미처리).
+		return self.btnStat.Entity.Enable or self.btnItem.Entity.Enable or self.btnAbility.Entity.Enable
+	end
+
+	@ExecSpace("ClientOnly")
 	method void OnContinueClick(ButtonClickEvent event)
-		-- 계속: 팝업 닫기 + 전투 컨텍스트 + 다음 스테이지 요청.
+		-- 계속: 미수령 보상이 있으면 자체 확인 팝업을 띄우고, 없으면 바로 진행.
+		if self:HasUnclaimedReward() then
+			if isvalid(self.confirmRoot) then self.confirmRoot.Enable = true end
+			log("[RewardController] continue blocked: unclaimed reward -> confirm popup")
+			return
+		end
+		self:Proceed()
+	end
+
+	@ExecSpace("ClientOnly")
+	method void OnConfirmYes(ButtonClickEvent event)
+		-- 확인 팝업 '계속': 남은 보상 포기하고 다음 스테이지로.
+		if isvalid(self.confirmRoot) then self.confirmRoot.Enable = false end
+		self:Proceed()
+	end
+
+	@ExecSpace("ClientOnly")
+	method void OnConfirmNo(ButtonClickEvent event)
+		-- 확인 팝업 '취소': 보상 화면으로 복귀 (아무 것도 버리지 않음).
+		if isvalid(self.confirmRoot) then self.confirmRoot.Enable = false end
+		log("[RewardController] confirm cancelled -> stay on reward screen")
+	end
+
+	@ExecSpace("ClientOnly")
+	method void Proceed()
+		-- 실제 다음 스테이지 진행: 팝업 닫기 + 전투 컨텍스트 + 다음 스테이지 요청.
 		self.rewardRoot.Enable = false
 		_InputRouter:SetContext("Combat")
 		_StageManager:RequestProceedNext()

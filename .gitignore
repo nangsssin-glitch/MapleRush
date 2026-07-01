@@ -1,1 +1,5 @@
 .mcp.json
+
+# msw-painter skill local deps (not part of the project)
+.claude/skills/msw-painter/scripts/node_modules/
+.claude/skills/msw-painter/scripts/package-lock.json

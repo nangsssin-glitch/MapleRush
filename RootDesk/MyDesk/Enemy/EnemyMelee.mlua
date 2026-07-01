@@ -23,12 +23,28 @@ script EnemyMelee extends Component
 
 	property string currentClip = ""
 
+	-- 엔티티별 클립셋(EnemyAnimSet, 인스펙터 편집). 없거나 미지정이면 GameConstants 폴백.
+	property any animSet = nil
+
 	@ExecSpace("ServerOnly")
 	method void OnBeginPlay()
-		-- stand 클립을 모델 기본 SpriteRUID에서 캡처.
+		-- 클립셋 캐시 + stand 캡처(모델 기본 SpriteRUID, AnimSet StandClip 있으면 override).
+		self.animSet = self.Entity:GetComponent("script.EnemyAnimSet")
 		local sprite = self.Entity.SpriteRendererComponent
 		if isvalid(sprite) then self.standClip = sprite.SpriteRUID end
+		self.standClip = self:AnimClip("idle", self.standClip)
 		self.currentClip = self.standClip
+	end
+
+	method string AnimClip(string key, string fallback)
+		-- EnemyAnimSet에서 key 클립 조회. 컴포넌트 없거나 미지정("")이면 fallback(GameConstants).
+		if self.animSet ~= nil then
+			---@type EnemyAnimSet
+			local a = self.animSet
+			local r = a:Clip(key)
+			if r ~= "" then return r end
+		end
+		return fallback
 	end
 
 	@ExecSpace("ServerOnly")
@@ -47,7 +63,7 @@ script EnemyMelee extends Component
 		-- 근거리 적 AI: 감지(3) → 추격 → 공격(1, 텔레그래프 0.6s) → 쿨다운. 슬로우 배율 적용, 낭떠러지 정지.
 		---@type EnemyHealth
 		local hp = self.Entity:GetComponent("script.EnemyHealth")
-		if hp ~= nil and hp.IsDead == true then return end
+		if hp ~= nil and hp.IsDead == true then self:PlayClip(self:AnimClip("die", self.standClip)) return end
 		if _StageManager:IsGraceActive() then
 			self:StopMove()
 			self:PlayClip(self.standClip)
@@ -58,6 +74,23 @@ script EnemyMelee extends Component
 			self:StopMove()
 			self:PlayClip(self.standClip)
 			return
+		end
+		-- 피격(HIT) 상태: 진행 중이던 공격(windup) 취소 → 공격이 멈춘다. hit 모션 재생(없으면 stand). 윈도우 동안 이동·공격 정지.
+		if hp ~= nil and _UtilLogic.ServerElapsedSeconds < hp.hitClipUntil then
+			if self.aiState == "windup" and self.pendingAttack ~= nil then
+				if self.pendingAttack.id ~= nil then _CombatPrimitives:BroadcastCancel(self.Entity.CurrentMap, self.pendingAttack.id) end
+				self.pendingAttack.canceled = true
+				self.pendingAttack = nil
+				log("[EnemyMelee] " .. self.Entity.Name .. " hit → windup canceled")
+			end
+			self.aiState = "hit"
+			self:StopMove()
+			self:PlayClip(self:AnimClip("hit", self.standClip))
+			return
+		end
+		-- HIT 종료 → idle로 즉시 복귀(스턴은 HitStunDuration만). 아래 idle 로직이 run/stand 클립 재생해 hit 클립을 즉시 해제.
+		if self.aiState == "hit" then
+			self.aiState = "idle"
 		end
 		local timeScale = _SlowMotion:Scale()
 		local scaledDelta = delta * timeScale
@@ -87,7 +120,8 @@ script EnemyMelee extends Component
 			if self.stateTimer <= 0 then
 				local rec = self.pendingAttack
 				if rec ~= nil and rec.canceled == false then
-					if _CombatPrimitives:RecordOverlapsCircle(rec, playerCenter, 0.5) then
+					local phb = _CombatPrimitives:HurtboxOf(player, _GameConstants.PlayerHboxHW, _GameConstants.PlayerHboxHH, _GameConstants.PlayerCenterYOffset)
+					if _CombatPrimitives:RecordOverlapsBox(rec, Vector2(phb.cx, phb.cy), phb.hw, phb.hh) then
 						---@type PlayerHit
 						local hitComp = player:GetComponent("script.PlayerHit")
 						if hitComp ~= nil then
@@ -122,11 +156,11 @@ script EnemyMelee extends Component
 				local boxCenter = Vector2(myCenter.x + facingX * f * 0.5, myCenter.y)
 				self.pendingAttack = _CombatPrimitives:RegisterEnemyAttackBox(boxCenter, f * 0.5, _GameConstants.EnemyMeleeBoxHeight * 0.5, 1, self.AttackParryable, self.WindupTime, self.Entity)
 				self:StopMove()
-				self:PlayClip(_GameConstants.MeleeAttackClip)
+				self:PlayClip(self:AnimClip("attack", _GameConstants.MeleeAttackClip))
 				log("[EnemyMelee] " .. self.Entity.Name .. " windup start (parryable=" .. tostring(self.AttackParryable) .. ")")
 			elseif dist <= self.DetectRadius then
 				self:ChaseToward(playerCenter.x, myCenter.x, timeScale, delta)
-				self:PlayClip(_GameConstants.MeleeMoveClip)
+				self:PlayClip(self:AnimClip("run", _GameConstants.MeleeMoveClip))
 			else
 				self:StopMove()
 				self:PlayClip(self.standClip)

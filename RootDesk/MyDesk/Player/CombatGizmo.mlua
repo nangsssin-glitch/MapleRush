@@ -23,9 +23,9 @@ script CombatGizmo extends Component
 		local player = _UserService.LocalPlayer
 		if player == nil or isvalid(player) == false or self.Entity ~= player then return end
 
-		-- (0) 플레이어 피격원 (green, r=0.5) — 매 프레임 상시. 실제 판정과 동일 중심(pos.y + PlayerCenterYOffset).
-		local php = player.TransformComponent.WorldPosition
-		_GizmoManager:PlayerHurtbox(Vector2(php.x, php.y + _GameConstants.PlayerCenterYOffset))
+		-- (0) 플레이어 피격박스 (green) — 매 프레임 상시. 판정과 동일 소스(HurtboxOf): HitComponent 있으면 인스펙터값, 없으면 상수.
+		local phb = _CombatPrimitives:HurtboxOf(player, _GameConstants.PlayerHboxHW, _GameConstants.PlayerHboxHH, _GameConstants.PlayerCenterYOffset)
+		_GizmoManager:PlayerHurtbox(Vector2(phb.cx, phb.cy), phb.hw, phb.hh)
 
 		-- (1) 플레이어 공격 플래시 박스 (커서 좌/우 전방 박스, 짧은 시간)
 		if self.combat == nil then self.combat = self.Entity:GetComponent("script.PlayerCombat") end
@@ -54,8 +54,8 @@ script CombatGizmo extends Component
 				local hpComp = compAny
 				local e = hpComp.Entity
 				if isvalid(e) and hpComp.IsDead == false then
-					local ep = e.TransformComponent.WorldPosition
-					_GizmoManager:EnemyHurtbox(Vector2(ep.x, ep.y))
+					local hb = _CombatPrimitives:HurtboxOf(e, _GameConstants.EnemyHboxHW, _GameConstants.EnemyHboxHH, 0)
+					_GizmoManager:EnemyHurtbox(Vector2(hb.cx, hb.cy), hb.hw, hb.hh)
 				end
 			end
 		end
@@ -94,13 +94,11 @@ script CombatGizmo extends Component
 			end
 		end
 
-		-- (4) 예상 공격 레인(회전 직사각형) — 클라 계산. 원거리 단발 1갈래 + 보스 tripleShot 3갈래.
+		-- (4) 예상 공격 레인(회전 직사각형). 방향·타깃은 적/보스가 조준 시작 시 고정한 @Sync 값을 사용(플레이어 추적 안 함).
 		local laneLen = _GameConstants.GizmoRangedLaneLength
 		local laneW = _GameConstants.GizmoRangedLaneWidth
-		local pc3 = _UserService.LocalPlayer.TransformComponent.WorldPosition
-		local playerCenter = Vector2(pc3.x, pc3.y + _GameConstants.PlayerCenterYOffset)
 
-		-- 원거리 단발: 조준 중(IsAiming) 적 → 적→플레이어 1갈래
+		-- 원거리 단발: 조준 중(IsAiming) 적 → 고정 방향 1갈래
 		local rangedList = map:GetChildComponentsByTypeName("script.EnemyRanged", true)
 		if rangedList ~= nil then
 			for _, compAny in ipairs(rangedList) do
@@ -110,7 +108,8 @@ script CombatGizmo extends Component
 				if isvalid(e) and comp.IsAiming == true then
 					local ep = e.TransformComponent.WorldPosition
 					local ec = Vector2(ep.x, ep.y + 0.5)
-					local dir = _CombatPrimitives:DirectionTo(ec, playerCenter)
+					-- 조준 시작 시 고정된 방향(EnemyRanged.AimDir*) — 플레이어 추적 안 함.
+					local dir = Vector2(comp.AimDirX, comp.AimDirY)
 					_GizmoManager:AttackLane(ec, dir, laneLen, laneW)
 				end
 			end
@@ -129,7 +128,8 @@ script CombatGizmo extends Component
 					local bc = Vector2(bp.x, bp.y + 0.5)
 					local i = -1
 					while i <= 1 do
-						local target = Vector2(playerCenter.x, playerCenter.y + i * spread)
+						-- windup 진입 시 고정된 타깃(BossController.AimTarget*) — 플레이어 추적 안 함.
+						local target = Vector2(comp.AimTargetX, comp.AimTargetY + i * spread)
 						local dir = _CombatPrimitives:DirectionTo(bc, target)
 						_GizmoManager:AttackLane(bc, dir, laneLen, laneW)
 						i = i + 1

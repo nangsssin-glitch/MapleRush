@@ -1,7 +1,7 @@
 ---
 id: MR-O
 title: 능력치 강화(메타) 화면 — 검토(컷 후보)
-status: review
+status: done
 owner: D4LGONA
 area: mixed
 touches:
@@ -10,7 +10,7 @@ touches:
 depends_on: []
 branch: "D4LGONA/MR-O-meta-upgrade-screen"
 created: 2026-06-26
-updated: 2026-06-28
+updated: 2026-06-29
 ---
 
 # 능력치 강화(메타) 화면 — 검토(컷 후보)

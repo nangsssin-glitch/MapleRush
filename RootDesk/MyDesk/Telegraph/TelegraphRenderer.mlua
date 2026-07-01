@@ -1,0 +1,239 @@
+@Logic
+script TelegraphRenderer extends Logic
+
+	-- 예고 게이지 렌더링 캡슐화(클라 전용). TelegraphService.GetClientList()를 매 프레임 폴링해 풀 홀더로 그린다.
+	-- 게이지 1개 = 프레임 홀더 1 + 필 홀더 1 (둘 다 솔리드 사각 스프라이트, 같은 모델 telegraphgauge).
+	--   프레임 = 위험구역 풀박스(반투명) — windup 진입 즉시 "어디" 고지.
+	--   필     = Scale 성장으로 "언제" 고지. box=아래→위 수직 / ranged=원점(보스)→바깥 dir축.
+	-- 좌표 규칙: 흰 스프라이트 100×100px = 1×1 world unit(피벗 중심) → Scale=(W,H)가 곧 월드 크기. (platform §5: 1unit=100px)
+	-- 풀은 맵 자식으로 서버 스폰(SpawnByModelId는 서버 전용) — GizmoManager 패턴. 단 디버그 게이트 없음(상시).
+
+	@HideFromInspector property any frameHolders = nil   -- slot(idx+1) -> 프레임 홀더 캐시
+	@HideFromInspector property any fillHolders = nil     -- slot(idx+1) -> 필 홀더 캐시
+	@HideFromInspector property any boundMap = nil
+	@HideFromInspector property string holdersMapName = ""
+	@HideFromInspector property string requestedMapName = ""
+	@HideFromInspector property integer poolSize = 0
+	@HideFromInspector property number gizmoZ = 0.0
+	@HideFromInspector property boolean overflowed = false
+
+	@ExecSpace("ClientOnly")
+	method void OnBeginPlay()
+		-- 클라 1회 초기화.
+		self.frameHolders = {}
+		self.fillHolders = {}
+		self.poolSize = _GameConstants.TelegraphPoolSize
+		self.boundMap = nil
+		self.holdersMapName = ""
+		self.requestedMapName = ""
+		self.gizmoZ = 0.0
+		log("[TelegraphRenderer] OnBeginPlay (pool=" .. tostring(self.poolSize) .. ")")
+	end
+
+	@ExecSpace("ClientOnly")
+	method void OnUpdate(number delta)
+		-- 매 프레임: 맵 바인딩 + 풀 보장 → 전체 숨김 → 활성 텔레그래프 배치.
+		local player = _UserService.LocalPlayer
+		if player == nil or isvalid(player) == false then return end
+		local map = player.CurrentMap
+		if map == nil or isvalid(map) == false then return end
+
+		-- 맵 변경 감지 → 홀더 캐시 리셋.
+		if self.holdersMapName ~= map.Name then
+			self.boundMap = map
+			self.holdersMapName = map.Name
+			self.frameHolders = {}
+			self.fillHolders = {}
+		end
+		if self.frameHolders == nil then self.frameHolders = {} end
+		if self.fillHolders == nil then self.fillHolders = {} end
+
+		-- 풀 보장: 마지막 슬롯 홀더가 없으면 서버에 1회 스폰 요청(맵별).
+		if self.requestedMapName ~= map.Name then
+			local lastFrame = map:GetChildByName(_GameConstants.TelegraphFramePrefix .. tostring(self.poolSize - 1), false)
+			local lastFill = map:GetChildByName(_GameConstants.TelegraphFillPrefix .. tostring(self.poolSize - 1), false)
+			if lastFrame == nil or isvalid(lastFrame) == false or lastFill == nil or isvalid(lastFill) == false then
+				self:RequestEnsurePool(map)
+			end
+			self.requestedMapName = map.Name
+		end
+
+		local tf = player.TransformComponent
+		if isvalid(tf) then self.gizmoZ = tf.WorldPosition.z end
+
+		self:HideAll()
+		self.overflowed = false
+
+		local list = _TelegraphService:GetClientList()
+		if list == nil then return end
+		local now = _WallClock:Now()
+		local slot = 0
+		for i = #list, 1, -1 do
+			local t = list[i]
+			local elapsed = now - t.recvAt
+			-- 안전 만료: 서버 Hide가 누락돼도 windup+1s 후 자동 제거(stuck 방지).
+			if elapsed > t.windup + 1.0 then
+				table.remove(list, i)
+			else
+				if slot < self.poolSize then
+					self:Place(slot, t, elapsed)
+					slot += 1
+				else
+					self:WarnOverflow()
+				end
+			end
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void Place(integer slot, any t, number elapsed)
+		-- 게이지 1개 배치: 프레임(풀박스) + 필(progress 성장). box/ranged 분기.
+		local progress = 0.0
+		if t.windup > 0 then progress = elapsed / t.windup end
+		if progress < 0 then progress = 0 elseif progress > 1 then progress = 1 end
+		local fillFrac = progress
+		if fillFrac < _GameConstants.TelegraphMinFill then fillFrac = _GameConstants.TelegraphMinFill end
+
+		local baseCol = _GameConstants.TelegraphColorRed
+		if t.parryable then baseCol = _GameConstants.TelegraphColorYellow end
+		local frameCol = Color(baseCol.r, baseCol.g, baseCol.b, _GameConstants.TelegraphFrameAlpha)
+		local fillCol = Color(baseCol.r, baseCol.g, baseCol.b, _GameConstants.TelegraphFillAlpha)
+
+		local frame = self:FrameHolder(slot)
+		local fill = self:FillHolder(slot)
+
+		if t.kind == "ranged" then
+			-- 레인: 원점(보스)→바깥. L=2hw(발사축), W=2hh(폭). angle=dir.
+			local L = t.hw * 2.0
+			local W = t.hh * 2.0
+			local ang = math.deg(math.atan(t.dirY, t.dirX))
+			-- 프레임: 레인 중심 = 원점 + dir*hw
+			local fcx = t.center.x + t.dirX * t.hw
+			local fcy = t.center.y + t.dirY * t.hw
+			self:PutHolder(frame, fcx, fcy, L, W, ang, frameCol, 30000)
+			-- 필: 원점에서 dir로 filledL 만큼
+			local filledL = L * fillFrac
+			local pcx = t.center.x + t.dirX * (filledL * 0.5)
+			local pcy = t.center.y + t.dirY * (filledL * 0.5)
+			self:PutHolder(fill, pcx, pcy, filledL, W, ang, fillCol, 30001)
+		else
+			-- box(근접·광역): 수직 아래→위. 프레임=풀박스, 필=바닥 고정 성장.
+			local W = t.hw * 2.0
+			local H = t.hh * 2.0
+			self:PutHolder(frame, t.center.x, t.center.y, W, H, 0, frameCol, 30000)
+			local filledH = H * fillFrac
+			local bottom = t.center.y - t.hh
+			local pcy = bottom + filledH * 0.5
+			self:PutHolder(fill, t.center.x, pcy, W, filledH, 0, fillCol, 30001)
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void PutHolder(any e, number x, number y, number sx, number sy, number angDeg, Color col, integer order)
+		-- 홀더 1개를 위치/스케일/회전/색으로 배치하고 표시. PixelRenderer = 솔리드색(FillColor, 에셋 불필요).
+		-- 월드크기 sx,sy(유닛)를 PixelRenderer 기본버퍼 월드크기(TelegraphPxBaseWorld)로 나눠 Scale 변환.
+		if e == nil or isvalid(e) == false then return end
+		local pr = e.PixelRendererComponent
+		if isvalid(pr) == false then return end
+		local tf = e.TransformComponent
+		if isvalid(tf) then
+			local base = _GameConstants.TelegraphPxBaseWorld
+			tf.WorldPosition = Vector3(x, y, self.gizmoZ)
+			tf.Scale = Vector3(sx / base, sy / base, 1)
+			tf.WorldZRotation = angDeg
+		end
+		pr:FillColor(col)
+		pr.OrderInLayer = order
+		pr.Enable = true
+	end
+
+	@ExecSpace("ClientOnly")
+	method any FrameHolder(integer idx)
+		-- 프레임 홀더 조회(맵 자식, 캐시 + isvalid 재조회).
+		if idx < 0 or idx >= self.poolSize then return nil end
+		local s = idx + 1
+		local e = self.frameHolders[s]
+		if e ~= nil and isvalid(e) then return e end
+		if self.boundMap == nil or isvalid(self.boundMap) == false then return nil end
+		e = self.boundMap:GetChildByName(_GameConstants.TelegraphFramePrefix .. tostring(idx), false)
+		self.frameHolders[s] = e
+		return e
+	end
+
+	@ExecSpace("ClientOnly")
+	method any FillHolder(integer idx)
+		-- 필 홀더 조회(맵 자식, 캐시 + isvalid 재조회).
+		if idx < 0 or idx >= self.poolSize then return nil end
+		local s = idx + 1
+		local e = self.fillHolders[s]
+		if e ~= nil and isvalid(e) then return e end
+		if self.boundMap == nil or isvalid(self.boundMap) == false then return nil end
+		e = self.boundMap:GetChildByName(_GameConstants.TelegraphFillPrefix .. tostring(idx), false)
+		self.fillHolders[s] = e
+		return e
+	end
+
+	@ExecSpace("ClientOnly")
+	method void HideAll()
+		-- 전 프레임+필 홀더 숨김.
+		local i = 0
+		while i < self.poolSize do
+			local f = self:FrameHolder(i)
+			if f ~= nil and isvalid(f) then
+				local pr = f.PixelRendererComponent
+				if isvalid(pr) then pr.Enable = false end
+			end
+			local g = self:FillHolder(i)
+			if g ~= nil and isvalid(g) then
+				local pr2 = g.PixelRendererComponent
+				if isvalid(pr2) then pr2.Enable = false end
+			end
+			i += 1
+		end
+	end
+
+	@ExecSpace("Server")
+	method void RequestEnsurePool(Entity mapEntity)
+		-- 클라 요청 → 서버가 해당 맵에 텔레그래프 풀 idempotent 스폰.
+		self:EnsurePoolOnMap(mapEntity)
+	end
+
+	@ExecSpace("ServerOnly")
+	method void EnsurePoolOnMap(Entity map)
+		-- 맵 자식으로 프레임 풀 + 필 풀 스폰(이름=prefix+index, 0-base). 마지막 슬롯 기준 idempotent.
+		if map == nil or isvalid(map) == false then return end
+		local model = _GameConstants.TelegraphModelId
+		local fp = _GameConstants.TelegraphFramePrefix
+		local lp = _GameConstants.TelegraphFillPrefix
+		local n = _GameConstants.TelegraphPoolSize
+		if map:GetChildByName(fp .. tostring(n - 1), false) == nil then
+			local i = 0
+			while i < n do
+				if map:GetChildByName(fp .. tostring(i), false) == nil then
+					_SpawnService:SpawnByModelId(model, fp .. tostring(i), Vector3(0, 0, 0), map)
+				end
+				i += 1
+			end
+		end
+		if map:GetChildByName(lp .. tostring(n - 1), false) == nil then
+			local j = 0
+			while j < n do
+				if map:GetChildByName(lp .. tostring(j), false) == nil then
+					_SpawnService:SpawnByModelId(model, lp .. tostring(j), Vector3(0, 0, 0), map)
+				end
+				j += 1
+			end
+		end
+		log("[TelegraphRenderer] telegraph pool spawned under map '" .. tostring(map.Name) .. "' (" .. tostring(n) .. " frame + " .. tostring(n) .. " fill)")
+	end
+
+	@ExecSpace("ClientOnly")
+	method void WarnOverflow()
+		-- 풀 초과 1회 경고(프레임당).
+		if self.overflowed == false then
+			self.overflowed = true
+			log_warning("[TelegraphRenderer] telegraph pool overflow — 초과 게이지 무시 (PoolSize=" .. tostring(self.poolSize) .. ")")
+		end
+	end
+
+end
