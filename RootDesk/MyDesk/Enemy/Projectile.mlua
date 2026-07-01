@@ -16,6 +16,16 @@ script Projectile extends Component
 
 	property boolean Launched = false
 
+	-- 발사 후 누적 이동거리. 이 값이 TerrainGrace 넘기 전까진 지형 충돌 무시(발사 지점 주변 벽 통과 → 투사체가 안 보이고 즉시 사라지는 문제 방지).
+	property number traveled = 0.0
+
+	property number TerrainGrace = 0.6
+
+	-- 수명(초). 이 시간 지나면 소멸. ★맵 크기 무관(기존 하드코딩 좌표경계 -12~14는 넓은 레벨맵에서 투사체를 즉시 소멸시켜 "안 보이는" 버그였음).
+	property number Lifetime = 2.0
+
+	property number age = 0.0
+
 	@ExecSpace("ServerOnly")
 	method void Launch(number dirX, number dirY, number speed, number damage, boolean parryable)
 		-- 투사체 발사 파라미터 설정 (서버).
@@ -53,19 +63,21 @@ script Projectile extends Component
 		local step = self.Speed * delta * timeScale
 		local nx = pos.x + self.DirX * step
 		local ny = pos.y + self.DirY * step
+		self.traveled += step
 
-		-- (1) 맵 밖 이탈 → 소멸
-		if nx < -12 or nx > 14 or ny < -6 or ny > 8 then
+		-- (1) 수명 초과 → 소멸 (맵 크기 무관).
+		self.age += delta
+		if self.age > self.Lifetime then
 			e:Destroy()
 			return
 		end
 
-		-- (2) 지형(발판) 충돌 → 소멸
+		-- (2) 지형(발판) 충돌 → 소멸. 단 발사 직후 TerrainGrace 거리 전까진 무시(발사 지점 주변 벽에 즉시 걸려 사라지는 문제 방지).
 		local map = e.CurrentMap
-		if isvalid(map) and isvalid(map.FootholdComponent) and step > 0 then
+		if self.traveled > self.TerrainGrace and isvalid(map) and isvalid(map.FootholdComponent) and step > 0 then
 			local fh = map.FootholdComponent:Raycast(Vector2(pos.x, pos.y), Vector2(self.DirX, self.DirY), step)
 			if fh ~= nil then
-				log("[Projectile] hit terrain, destroyed")
+				log("[Projectile] destroyed: terrain pos=(" .. string.format("%.1f,%.1f", pos.x, pos.y) .. ") traveled=" .. string.format("%.2f", self.traveled))
 				e:Destroy()
 				return
 			end
