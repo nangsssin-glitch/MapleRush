@@ -5,9 +5,10 @@ status: in-progress
 owner: D4LGONA
 area: script
 touches:
-  - RootDesk/MyDesk/Player/PlayerCombat.mlua
-  - RootDesk/MyDesk/Player/PlayerHit.mlua
-  - RootDesk/MyDesk/Core/GameConstants.mlua
+  - RootDesk/MyDesk/Core/HitFeedback.mlua
+  - RootDesk/MyDesk/Enemy/EnemyHealth.mlua
+  - RootDesk/MyDesk/Enemy/EnemyMelee.mlua
+  - RootDesk/MyDesk/Enemy/EnemyRanged.mlua
 depends_on: []
 branch: "feat/MR-Q-hit-feedback"
 created: 2026-07-01
@@ -20,15 +21,15 @@ updated: 2026-07-01
 플레이어가 적을 타격했을 때 "묵직하게 꽂히는" 손맛(타격감)을 만든다. 레퍼런스는 *이나리* / *카타나 제로*. 타격 판정 성립 시 **카메라 셰이크 · 히트 스톱 · 피격 경직 · 타격음**이 동시에 발동하고 **총 0.1초 안에 복귀**한다. 기획서: `docs/hit_feedback_design_doc.md`.
 
 ## Acceptance criteria
-- [ ] 적 타격 시 카메라가 **살짝, 짧게(≤0.1초)** 흔들리고 즉시 복귀
-- [ ] 타격 순간 **화면 전체가 아주 짧게(≈0.05초) 멈췄다(히트 스톱)** 풀림 — "탁" 꽂히는 손맛
-- [ ] 맞은 적이 **그 자리에서 0.1초 정지(경직)** 후 재개 — **넉백 없음**
-- [ ] 타격음이 타격과 **동시에 1회** 재생
-- [ ] 타격감 발동 후 게임이 **정상 속도로 복귀** (느려지거나 멈춘 채 남지 않음) ★최우선
-- [ ] 광역/연타로 여러 번 맞춰도 **셰이크가 누적돼 멀미나게 흔들리지 않음** (1회 흔들림·히트스톱 1회로 제한, 경직은 적별 개별)
-- [ ] **셰이크 강도**와 **히트 스톱 정지시간**을 기획자가 **코드 없이 컴포넌트(인스펙터)에서 조정** 가능
-- [ ] (권장) 충돌 지점 스파크 이펙트 1종
-- [ ] build/runtime 에러 0
+- [x] 적 타격 시 카메라가 **살짝, 짧게(≤0.1초)** 흔들리고 즉시 복귀
+- [x] 타격 순간 **화면 전체가 아주 짧게(≈0.05초) 멈췄다(히트 스톱)** 풀림 — "탁" 꽂히는 손맛
+- [~] 맞은 적이 **그 자리에서 0.1초 정지(경직)** 후 재개 — **넉백 없음** (일반 적만; 보스 제외 → 아래 편차)
+- [ ] 타격음이 타격과 **동시에 1회** 재생 — **미완성: 재생 훅만, 사운드 에셋 미지정(소리 안 남)**
+- [x] 타격감 발동 후 게임이 **정상 속도로 복귀** (느려지거나 멈춘 채 남지 않음) ★최우선
+- [x] 광역/연타로 여러 번 맞춰도 **셰이크가 누적돼 멀미나게 흔들리지 않음** (throttle; 단일 프레임 광역=1회)
+- [x] **셰이크 강도**와 **히트 스톱 정지시간**을 기획자가 **코드 없이 컴포넌트(인스펙터)에서 조정** 가능
+- [ ] (권장) 충돌 지점 스파크 이펙트 1종 — 기존 EnemyHitEffect가 피격 이펙트 재생 중(별도 스파크 미추가)
+- [x] build/runtime 에러 0
 
 ## Subtasks
 - [ ] msw-combat-system 로드 → 히트스톱/카메라셰이크 네이티브 API·패턴 확인 (references/*)
@@ -49,5 +50,23 @@ updated: 2026-07-01
 - 타격음은 [[sound-volume-architecture]] 준수 (SoundManager.PlaySFX 경유).
 - 겹침 주의: GameConstants.mlua는 여러 티켓이 건드림(MR-F 외부화 예정) — 값 추가 시 충돌 조율.
 
+## 남은 작업 / 미구현 / 편차 (2026-07-01 1차 구현·커밋 시점)
+
+### ❌ 미구현 (기획서 대비 부족)
+- [ ] **타격음 실제 재생** — `HitFeedback.HitSfxId`가 비어 있어 소리가 나지 않음. 재생 코드는 `_SoundService:PlaySound(HitSfxId, HitSfxVolume)`로 준비됨. **할 일**: 타격음 SFX RUID를 msw-search로 찾아 `HitSfxId` 기본값에 지정. ⚠ 사운드 볼륨 아키텍처([[sound-volume-architecture]]) 관련 `SoundManager`는 이 브랜치(master 기준)에 없음(`sound-volume-settings` 브랜치 소속) → 그 브랜치 머지 후 `SoundManager.PlaySFX` 경유로 전환 권장.
+- [ ] **(권장) 충돌 스파크 VFX** — 별도 추가 안 함(기존 EnemyHitEffect가 피격 이펙트 재생 중이라 최소 충족). 필요 시 전용 스파크 추가.
+
+### ⚠ 기획서와의 편차 (의도적 결정 — 협의 필요)
+- **셰이크 강도 기본값 0.15 → 1.0으로 상향.** 기획서 시작값 0.15는 실측상 지각 한계 이하로 화면에서 거의 안 보임. 1.0은 **임시 추측값** — "거슬리지 않으면서 체감되는" 진짜 캘리브레이션은 실제 플레이 튜닝 필요(인스펙터 조정 가능). 히트스톱은 0.05x/0.05초(기획서값) 유지.
+- **보스는 피격 경직 제외.** 기획서는 보스 제외를 명시하지 않았으나, dust9826의 보스 패턴 시스템(MR-T)과의 간섭 우려로 일반 적(melee/ranged)에만 경직 적용. 보스에도 셰이크·히트스톱·타격음은 적용됨. → **보스 경직 포함 여부 팀 협의 필요.**
+
+### ❓ 미검증 (런타임 눈확인 안 됨)
+- [ ] **실제 전투(플레이어 직접 공격)에서 발동** — 코드로 강제 `TakeDamage` 주입 검증만 완료. 경로상(`PlayerCombat`→`CombatPrimitives:DamageEnemiesIn*`→`EnemyHealth:TakeDamage`) 발동은 맞으나 실제 플레이 눈확인 미완.
+- [ ] **적 경직 프리즈 시각 확인** — `IsStunned` 플래그·AI 가드는 검증(플래그=true), 실제로 적이 0.1초 멈추는 장면 목격은 안 함.
+- [ ] **1.0 셰이크 강도 체감 튜닝** — 실제 전투에서 적정치 조정.
+
+### 검증 완료 (로그/스크린샷)
+- 매 타격 시 `[HitFeedback] hit feel` 발동(서버+클라), 히트스톱 `restored`(정상 속도 복귀 ★), `IsStunned=true`(now+0.1), ShakeCamera 실작동(강한 값에서 카메라 이동 확인), 다중타격 throttle, build 에러 0.
+
 ## Verify
-- Maker `play` → 적 타격 → 카메라 셰이크·히트스톱·경직·타격음 동시 발동 + 0.1초 내 정상 복귀를 로그/스크린샷으로 확인. 연타·광역 시 누적 흔들림 없음 확인. 컴포넌트에서 강도/정지시간 바꿔 재생 시 반영되는지 확인.
+- Maker `play` → 실제 스테이지 진입 → 적 타격 → 카메라 셰이크·히트스톱·경직·(에셋 지정 후)타격음 동시 발동 + 0.1초 내 정상 복귀 눈확인. 연타·광역 시 누적 흔들림 없음. 인스펙터에서 강도/정지시간 바꿔 반영 확인.

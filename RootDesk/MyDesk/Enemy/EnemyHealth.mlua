@@ -12,13 +12,13 @@ script EnemyHealth extends Component
 	@Sync
 	property boolean IsDead = false
 
-	-- 피격 모션 윈도우 끝 시각(ServerElapsedSeconds). AI가 이 시각 전까지 hit 클립 재생. @Sync 불필요(AI=서버).
+	-- 피격 모션 윈도우 끝 시각(ServerElapsedSeconds). AI가 이 시각 전까지 hit 클립 재생 + 공격 중단(=피격 경직). @Sync 불필요(AI=서버).
 	property number hitClipUntil = -999.0
 
 	-- 사망 클립이 보이도록 파괴를 이 시간만큼 지연.
 	property number DeadAnimDelay = 0.8
 
-	-- 피격 스턴 시간(초): 이 동안 적이 공격 중단 + hit 모션. 인스펙터에서 적별 조정.
+	-- 피격 스턴 시간(초): 이 동안 적이 공격 중단 + hit 모션. 인스펙터에서 적별 조정. (타격감 피격 경직 = 이 시스템으로 통합)
 	property number HitStunDuration = 0.5
 
 	@ExecSpace("ServerOnly")
@@ -37,6 +37,8 @@ script EnemyHealth extends Component
 		self.HP = self.HP - amount
 		log("[EnemyHealth] " .. self.Entity.Name .. " took " .. tostring(amount) .. " dmg from " .. source .. " -> HP=" .. tostring(self.HP))
 		self:PlayHitEffect()
+		-- 타격감: 클라 카메라 셰이크/히트스톱/타격음. (피격 경직은 위 hitClipUntil = HitStunDuration 시스템이 담당)
+		_HitFeedback:OnEnemyHit(self.Entity)
 		if self.EnemyKind == "boss" then
 			---@type GroggyGauge
 			local gg = self.Entity:GetComponent("script.GroggyGauge")
