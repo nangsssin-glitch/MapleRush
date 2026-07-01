@@ -1,7 +1,7 @@
 ---
 id: MR-U
 title: 적 애니메이션 클립 Component화 (EnemyAnimSet — 몬스터 다양화 기반)
-status: review
+status: done
 owner: dust9826
 area: mixed
 touches:

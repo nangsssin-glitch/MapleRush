@@ -1,7 +1,7 @@
 ---
 id: MR-X
 title: 맵 내 stage 구역 시스템 (노드=stage 선택 + 몬스터 마커 스폰)
-status: in-progress
+status: done
 owner: dust9826
 area: mixed
 touches:
@@ -15,6 +15,8 @@ branch: ""
 created: 2026-07-01
 updated: 2026-07-01
 ---
+
+> ✅ **DONE — PR #24 머지(master a252dc1, 2026-07-01).** 코어(맵 내 Stage 구역 + 노드=Stage 선택 + 마커 스폰) 완료·라이브 검증. 추가로 (1) 발판 아래 마커 무한낙하 픽스(GameConstants.SpawnYLift), (2) 보스맵 연결(테마별 `<Level>_Boss` + 플레이어=SpawnLocation / 보스=맵 마커 배치)까지 동 PR에 포함·검증. 잔여는 유저 Maker authoring(보스맵 적마커, Orbis/Elnath 일반 Stage) — 별개 후속.
 
 # 맵 내 stage 구역 시스템 (노드=stage 선택 + 몬스터 마커 스폰)
 

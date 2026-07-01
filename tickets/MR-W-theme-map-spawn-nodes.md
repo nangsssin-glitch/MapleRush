@@ -1,7 +1,7 @@
 ---
 id: MR-W
 title: 테마→레벨맵 진입 + 노드 3분기=스폰포인트 선택
-status: review
+status: done
 owner: dust9826
 area: script
 touches:
