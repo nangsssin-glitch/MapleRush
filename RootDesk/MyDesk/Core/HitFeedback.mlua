@@ -23,11 +23,8 @@ script HitFeedback extends Logic
 	property number EnemyStunDuration = 0.10
 
 	@DisplayName("타격음 RUID")
-	@Description("비우면 재생하지 않음. 사운드 에셋 지정 시 RUID 입력.")
-	property string HitSfxId = ""
-
-	@DisplayName("타격음 볼륨")
-	property number HitSfxVolume = 1.0
+	@Description("적 피격 시 재생할 효과음(sound.csv #11 적 피격음). 비우면 재생 안 함. SoundManager.PlaySFX 경유로 SFX 볼륨 적용.")
+	property string HitSfxId = "4ab89d1c74b9420683465cc7566b62ef"
 
 	@DisplayName("연출 최소 간격(초)")
 	@Description("다중 타격(광역/연타) 시 셰이크·히트스톱이 누적돼 화면이 멀미나는 것 방지. 이 간격 내 추가 타격은 연출 1회로 합침.")
@@ -60,9 +57,9 @@ script HitFeedback extends Logic
 		if isvalid(cam) then
 			cam:ShakeCamera(self.ShakeIntensity, self.ShakeDuration)
 		end
-		-- 타격음 (에셋 미지정 시 생략)
+		-- 타격음: SoundManager 단일 진입점 경유(SFX 볼륨 적용). 에셋 미지정 시 생략.
 		if self.HitSfxId ~= "" then
-			_SoundService:PlaySound(self.HitSfxId, self.HitSfxVolume)
+			_SoundManager:PlaySFX(self.HitSfxId)
 		end
 		-- 히트스톱: 슬로우모션 중엔 생략 (전역 타임스케일 소유권 충돌 방지 — SlowMotion이 0.25x 유지 중)
 		if _SlowMotion.clientSlowActive == false then
