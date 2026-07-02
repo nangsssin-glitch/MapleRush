@@ -34,6 +34,10 @@ script StageManager extends Logic
 	-- 서버: 맵 전환 대기 상태 (전투 스테이지 진입 시 맵 도착 폴링)
 	property boolean awaitingMap = false
 
+	-- 서버: 이번 ResetStage가 "새 스테이지 진입"인지 여부. true=진입(아이템 슬롯 스냅샷) / false=사망 재시작(스냅샷 복구).
+	-- StartStageAt/StartStage 진입점에서 true로 세팅, ResetStage가 소비 후 false로 되돌린다.
+	property boolean freshStage = false
+
 	property string pendingMapId = ""
 
 	-- 이번 스테이지의 실제 맵 이름 (일반=테마맵 / 보스=map03 / 상점=map04). 1회 확정, GetMap까지 유지.
@@ -177,6 +181,7 @@ script StageManager extends Logic
 		-- 노드에서 고른 Stage로 진입 (맵 전환 없음, 이미 테마맵): 그 Stage 스폰포인트 + 몬스터 재스폰.
 		self.StageType = "normal"
 		self.StageActive = false
+		self.freshStage = true
 		self.pendingStage = stageName
 		_GameStateManager:RefillLives()
 		local sd = nil
@@ -200,6 +205,7 @@ script StageManager extends Logic
 		-- 보스/상점 스테이지 진입: 전용 맵(map03/map04)으로 이동 → 도착 후 스폰. (일반 스테이지는 StartStageAt 경유)
 		self.StageType = stageType
 		self.StageActive = false
+		self.freshStage = true
 		self.curSpawnX = 0.0
 		self.curSpawnY = 0.3
 		_GameStateManager:RefillLives()
@@ -344,7 +350,7 @@ script StageManager extends Logic
 				end
 			end
 		end
-		-- (6) 플레이어 위치/상태 리셋 + 능력 사용 횟수 초기화
+		-- (6) 플레이어 위치/상태 리셋 + 능력 사용 횟수 초기화 + 일회성 아이템 슬롯 스냅샷/복구
 		local users = _UserService:GetUsersByMapComponent(map.MapComponent)
 		if users ~= nil then
 			for _, u in ipairs(users) do
@@ -357,8 +363,20 @@ script StageManager extends Logic
 				if ability ~= nil then
 					ability:ResetUses(self.StageType)
 				end
+				-- 아이템 슬롯: 진입=현 상태 스냅샷 / 사망 재시작=진입 시점으로 복구 (소모 아이템 되돌림).
+				---@type PlayerItems
+				local items = u:GetComponent("script.PlayerItems")
+				if items ~= nil then
+					if self.freshStage then
+						items:SnapshotSlots()
+					else
+						items:RestoreSlots()
+					end
+				end
 			end
 		end
+		-- 진입 처리 완료 → 이후 ResetStage(사망 재시작)는 복구 경로.
+		self.freshStage = false
 		self.StageActive = true
 		self.combatGraceUntil = _UtilLogic.ServerElapsedSeconds + 1.5
 		log("[StageManager] ResetStage done: spawned=" .. tostring(self.SpawnedCount))
@@ -430,6 +448,10 @@ script StageManager extends Logic
 		local player = _UserService.LocalPlayer
 		if player ~= nil then
 			player.MovementComponent:SetWorldPosition(Vector2(sx, sy))
+			-- 대시 충전 만충 리셋 (DashCount는 클라 전용 → 서버 ResetStage가 직접 못 씀, 여기서 처리).
+			---@type PlayerDash
+			local dash = player:GetComponent("script.PlayerDash")
+			if dash ~= nil then dash:ResetForStage() end
 		end
 		_UtilLogic:SetClientTimeScale(1.0)
 		_InputRouter:SetContext("Combat")

@@ -14,6 +14,11 @@ script PlayerItems extends Component
 	-- 클라: 활성 슬롯 (0 = 없음). 한 번에 한 슬롯만 (player_design §7.3).
 	property integer ActiveSlot = 0
 
+	-- 서버: 스테이지 진입 시점 슬롯 스냅샷 (사망 재시작 시 복구용 — 대시 만충과 동일한 "자원 복구" 개념).
+	@HideFromInspector property string snapSlot1 = ""
+	@HideFromInspector property string snapSlot2 = ""
+	@HideFromInspector property string snapSlot3 = ""
+
 	property any routerHandler = nil
 
 	@ExecSpace("ClientOnly")
@@ -133,6 +138,24 @@ script PlayerItems extends Component
 		elseif itemId == "flash" then
 			_BattlefieldFx:ActivateStun(_GameConstants.FlashStunDuration)
 		end
+	end
+
+	@ExecSpace("ServerOnly")
+	method void SnapshotSlots()
+		-- 스테이지 진입 시 현재 슬롯 상태 저장 (사망 재시작 시 이 상태로 복구).
+		self.snapSlot1 = self.Slot1
+		self.snapSlot2 = self.Slot2
+		self.snapSlot3 = self.Slot3
+		log("[PlayerItems] snapshot slots: '" .. self.snapSlot1 .. "' '" .. self.snapSlot2 .. "' '" .. self.snapSlot3 .. "'")
+	end
+
+	@ExecSpace("ServerOnly")
+	method void RestoreSlots()
+		-- 사망 재시작 시 스테이지 진입 시점 슬롯으로 복구 (소모한 일회성 아이템을 되돌림).
+		self.Slot1 = self.snapSlot1
+		self.Slot2 = self.snapSlot2
+		self.Slot3 = self.snapSlot3
+		log("[PlayerItems] restore slots: '" .. self.Slot1 .. "' '" .. self.Slot2 .. "' '" .. self.Slot3 .. "'")
 	end
 
 	@ExecSpace("ServerOnly")
